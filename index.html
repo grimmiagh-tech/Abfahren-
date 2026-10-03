@@ -70,7 +70,10 @@
   .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 2em 4.6em; column-gap: .6em; align-items: center; }
   .b-cols > span { font-size: .5em; }
   .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
-  .c-dest { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-dest { display: flex; align-items: center; gap: .3em; min-width: 0; white-space: nowrap; }
+  .c-dest .dn { overflow: hidden; text-overflow: ellipsis; }
+  .acc { flex: none; width: .85em; height: .85em; fill: currentColor; opacity: .9; }
+  [data-theme="modern"] .acc { fill: #7fb4ff; }
   .c-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .row.cancelled .c-plat { display: none; }
   .row.cancelled .c-time { grid-column: 3 / 5; }
@@ -113,9 +116,12 @@
   [data-theme="led"] .b-cols { color: var(--led-dim); text-shadow: none; border-bottom: 2px dotted var(--led-off); padding-bottom: .15em; margin-bottom: .25em; }
   [data-theme="led"] .row { padding: .14em 0; }
   [data-theme="led"] .badge { font-weight: 900; }
-  [data-theme="led"] .delay { font-size: .55em; color: var(--led-dim); text-shadow: none; margin-left: .25em; vertical-align: .35em; }
+  [data-theme="led"] .delay { font-size: .65em; margin-left: .2em; vertical-align: .3em; }
+  [data-theme="led"] .delay.late { color: #ff5a46; text-shadow: 0 0 5px rgba(255,80,60,.55); }
+  [data-theme="led"] .delay.early { color: #4fe07a; text-shadow: 0 0 5px rgba(70,220,120,.5); }
   [data-theme="led"] .c-plat { color: var(--led-dim); }
-  [data-theme="led"] .row.cancelled .c-dest { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
+  [data-theme="led"] .row.cancelled .c-dest { color: var(--led-dim); }
+  [data-theme="led"] .row.cancelled .c-dest .dn { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
   [data-theme="led"] .ticker { font-size: .6em; border-top: 2px dotted var(--led-off); margin-top: .4em; padding-top: .4em; }
   [data-theme="led"] .msg { color: var(--led-dim); }
 
@@ -141,8 +147,11 @@
   [data-theme="modern"] .badge.dark-text { color: #111; }
   [data-theme="modern"] .c-plat { color: #9fb6da; font-weight: 500; }
   [data-theme="modern"] .c-time { font-weight: 700; }
-  [data-theme="modern"] .delay { font-size: .6em; color: #ff8a80; font-weight: 700; margin-left: .3em; }
-  [data-theme="modern"] .row.cancelled .c-dest { text-decoration: line-through; color: #7f98c0; }
+  [data-theme="modern"] .delay { font-size: .6em; font-weight: 700; margin-left: .3em; }
+  [data-theme="modern"] .delay.late { color: #ff8a80; }
+  [data-theme="modern"] .delay.early { color: #7ee2a0; }
+  [data-theme="modern"] .row.cancelled .c-dest { color: #7f98c0; }
+  [data-theme="modern"] .row.cancelled .c-dest .dn { text-decoration: line-through; }
   [data-theme="modern"] .row.cancelled .c-time { color: #ff8a80; }
   [data-theme="modern"] .ticker { font-size: .6em; color: #ffd166; margin-top: .4em; padding-top: .5em; border-top: 1px solid #23406b; font-weight: 500; }
   [data-theme="modern"] .msg { color: #9fb6da; }
@@ -450,6 +459,17 @@ async function nearbyStops(lat, lon) {
   return list.filter(l => l.type === 'stop' || l.type === 'station').map(toStop);
 }
 
+// Barrierefreiheit steckt bei der BVG in den Hinweisen der Fahrt (Code „bf“ bzw. Text „barrierefrei“)
+function isAccessibleHint(r) {
+  if (r.type !== 'hint') return false;
+  const text = String(r.text || r.summary || '');
+  if (/nicht|kein|eingeschränkt/i.test(text)) return false;
+  return /^bf$/i.test(String(r.code || '')) || /barrierefrei|rollstuhl|stufenlos/i.test(text);
+}
+
+// Rollstuhlsymbol (ISA) als SVG, damit es auch in der LED-Schrift in Tafelfarbe erscheint
+const ACC_ICON = '<svg class="acc" viewBox="0 0 24 24" role="img" aria-label="barrierefrei"><circle cx="11" cy="3.2" r="2.2"/><path d="M9.6 6.6h2.6v5h5.4v2.4h-7a1 1 0 0 1-1-1z"/><path d="M8.2 9.6v2.7a4.6 4.6 0 1 0 6.5 5.5h2.6a7.1 7.1 0 1 1-9.1-8.2z"/><path d="M15.4 14.6h2.4l2.6 6-2.2.9z"/></svg>';
+
 async function fetchDepartures(b, signal) {
   if (DEMO) return demoDepartures(b.station.id, b.direction?.id);
   const params = {
@@ -470,6 +490,7 @@ async function fetchDepartures(b, signal) {
     delayMin: d.delay != null ? Math.round(d.delay / 60) : null,
     cancelled: !!d.cancelled,
     warnings: (d.remarks || []).filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean),
+    accessible: (d.remarks || []).some(isAccessibleHint),
   }));
 }
 
@@ -616,13 +637,17 @@ function updateBoard(b) {
     html = visible.map(d => {
       const col = lineColor(d.line, d.product);
       const darkText = DARK_TEXT_LINES.has(d.line) ? ' dark-text' : '';
-      const showDelay = !d.cancelled && d.delayMin != null && d.delayMin >= 2;
+      // Abweichung vom Fahrplan wie in der BVG-App: rot +5 (zu spät), grün −2 (zu früh)
+      const showDelay = !d.cancelled && d.delayMin != null && d.delayMin !== 0;
+      const delayHtml = !showDelay ? ''
+        : d.delayMin > 0 ? `<span class="delay late">+${d.delayMin}</span>`
+        : `<span class="delay early">−${-d.delayMin}</span>`;
       const blink = !d.cancelled && d.when - now < 60000 ? 'blink' : '';
       return `<div class="row${d.cancelled ? ' cancelled' : ''}" role="listitem">
         <span class="c-line"><span class="badge p-${esc(d.product)}${darkText}" style="--lc:${col}">${esc(d.line)}</span></span>
-        <span class="c-dest">${esc(d.dest)}</span>
+        <span class="c-dest"><span class="dn">${esc(d.dest)}</span>${d.accessible ? ACC_ICON : ''}</span>
         <span class="c-plat">${esc(d.platform)}</span>
-        <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${showDelay ? `<span class="delay">+${d.delayMin}</span>` : ''}</span>
+        <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${delayHtml}</span>
       </div>`;
     }).join('');
   }
@@ -1075,7 +1100,7 @@ function demoDepartures(stationId, directionId) {
     for (let m = startMin - 1; m < startMin + DURATION_MIN; m++) {
       if ((m - offset - shift) % every !== 0) continue;
       const seed = (m * 7 + dest.length * 3) % 11;
-      const delayMin = seed === 2 ? 4 : seed === 6 ? 2 : seed === 9 ? 1 : 0;
+      const delayMin = seed === 2 ? 4 : seed === 6 ? 2 : seed === 9 ? 1 : seed === 4 ? -1 : seed === 7 ? -2 : 0;
       out.push({
         id: line + dest + m,
         line, product, dest, platform,
@@ -1083,6 +1108,7 @@ function demoDepartures(stationId, directionId) {
         delayMin,
         cancelled: line === 'M4' && seed % 2 === 1,
         warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
+        accessible: product === 'bus' || product === 'tram' || line === 'U8' || (product === 'suburban' && m % 2 === 0),
       });
     }
   }
