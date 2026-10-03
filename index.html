@@ -609,6 +609,7 @@ function updateBoard(b) {
     const text = !b.station ? 'Haltestelle in den Einstellungen ⚙ wählen'
       : r.loading && !r.lastUpdate ? 'Lade Abfahrten …'
       : r.error && !r.lastUpdate ? r.error
+      : hasFilter(b) ? 'Keine Abfahrten – Filter in ⚙ prüfen'
       : `Keine Abfahrten in den nächsten ${DURATION_MIN} Minuten`;
     html = `<div class="row msg"><span>${esc(text)}</span></div>`;
   } else {
@@ -776,6 +777,7 @@ function renderSettings() {
       <div class="field full">
         <span class="lbl">Verkehrsmittel</span>
         <div class="chips" data-f="products"></div>
+        <div class="hint">Antippen = nur dieses Verkehrsmittel, weitere dazu antippen. „Alle“ setzt zurück.</div>
       </div>
       <div class="field full">
         <span class="lbl">Linien</span>
@@ -855,7 +857,7 @@ function setupCard(b) {
     const pc = e.target.closest('[data-product]');
     if (pc) {
       const k = pc.dataset.product;
-      b.products = b.products.includes(k) ? b.products.filter(x => x !== k) : ALL_PRODUCTS.filter(x => x === k || b.products.includes(x));
+      toggleProduct(b, k);
       renderProductChips(b);
       renderLineChips(b);
       reloadBoard(b);
@@ -874,9 +876,26 @@ function setupCard(b) {
 function renderProductChips(b) {
   const el = cardEl(b)?.querySelector('[data-f="products"]');
   if (!el) return;
-  el.innerHTML = PRODUCTS.map(p =>
-    `<button type="button" class="chip" data-product="${p.key}" aria-pressed="${b.products.includes(p.key)}" style="--sw:${p.color}"><span class="sw"></span>${esc(p.label)}</button>`
+  // „Alle“ ist aktiv, solange nichts eingeschränkt ist – dann wirkt der erste Tipp als „nur dieses“
+  const all = b.products.length === ALL_PRODUCTS.length;
+  el.innerHTML = `<button type="button" class="chip" data-product="*" aria-pressed="${all}">Alle</button>` + PRODUCTS.map(p =>
+    `<button type="button" class="chip" data-product="${p.key}" aria-pressed="${!all && b.products.includes(p.key)}" style="--sw:${p.color}"><span class="sw"></span>${esc(p.label)}</button>`
   ).join('');
+}
+
+function toggleProduct(b, k) {
+  if (k === '*' || b.products.length === ALL_PRODUCTS.length) {
+    b.products = k === '*' ? [...ALL_PRODUCTS] : [k];
+  } else if (b.products.includes(k)) {
+    b.products = b.products.filter(x => x !== k);
+    if (!b.products.length) b.products = [...ALL_PRODUCTS];
+  } else {
+    b.products = ALL_PRODUCTS.filter(x => x === k || b.products.includes(x));
+  }
+}
+
+function hasFilter(b) {
+  return !!b.direction || b.lines.length > 0 || b.products.length < ALL_PRODUCTS.length;
 }
 
 function renderLineChips(b) {
