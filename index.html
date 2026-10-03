@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="led">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Abfahrten Berlin</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+<meta name="theme-color" content="#0a0a0a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Abfahrten" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0a0a0b;
+    --panel-bg: #151517;
+    --panel-border: #26262a;
+    --text: #e7e7ea;
+    --muted: #8b8b93;
+    --accent: #ffb000;
+    --input-bg: #0e0e10;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page-bg);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* ============ Dashboard ============ */
+  .dash {
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    transition: transform 2s ease, filter 2s ease;
+  }
+  body.night .dash { filter: brightness(.35); }
+  body.idle { cursor: none; }
+
+  .dash-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .clock { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+  .clock .time { font-size: clamp(30px, 6vw, 56px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .clock .date { font-size: clamp(13px, 1.8vw, 18px); color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  [data-theme="led"] .clock .time { font-family: Doto, monospace; font-weight: 900; color: #ffae00; text-shadow: 0 0 8px rgba(255,160,0,.5); }
+  .head-btns { display: flex; gap: 8px; flex: none; transition: opacity .4s; }
+  body.idle .head-btns { opacity: .12; }
+  .hbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--panel-border); background: var(--panel-bg); font-size: 20px; display: grid; place-items: center; }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+  .grid[data-cols="1"] { grid-template-columns: minmax(0, 1fr); }
+  .grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 700px) { .grid[data-cols] { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ============ Abfahrtstafel (gemeinsame Struktur) ============ */
+  .board-wrap { container-type: inline-size; min-width: 0; }
+  .board { position: relative; overflow: hidden; border-radius: 14px; }
+  .b-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .b-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-sub { display: flex; justify-content: space-between; gap: 1em; white-space: nowrap; }
+  .b-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .b-status { flex: none; }
+  .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 2em 4.6em; column-gap: .6em; align-items: center; }
+  .b-cols > span { font-size: .5em; }
+  .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
+  .c-dest { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .row.cancelled .c-plat { display: none; }
+  .row.cancelled .c-time { grid-column: 3 / 5; }
+  .row.msg { display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker { overflow: hidden; white-space: nowrap; }
+  .ticker .run { display: inline-block; padding-left: 100%; animation: ticker var(--dur, 30s) linear infinite; }
+  @keyframes ticker { to { transform: translateX(-100%); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  .blink { animation: blink 1s steps(1) infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .ticker { white-space: normal; }
+    .ticker .run { animation: none; padding-left: 0; }
+    .blink { animation: none; }
+  }
+
+  /* ============ Design 1: LED-Anzeiger (BVG-Stil, bernsteinfarben) ============ */
+  [data-theme="led"] .board {
+    --led: #ffae00;
+    --led-dim: #a86f00;
+    --led-off: #2a1c00;
+    background: #050505;
+    border: 8px solid #1b1b1d;
+    box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #2c2c30, 0 18px 40px rgba(0,0,0,.6);
+    padding: .6em .7em .4em;
+    font-family: Doto, "Courier New", monospace;
+    font-weight: 900;
+    color: var(--led);
+    text-shadow: 0 0 6px rgba(255,160,0,.55);
+    font-size: calc(clamp(14px, 5cqi, 30px) * var(--fit, 1));
+    letter-spacing: .02em;
+  }
+  [data-theme="led"] .board::after {
+    /* feines Punktraster wie bei echten LED-Matrixanzeigen */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle at center, transparent 55%, rgba(0,0,0,.35) 56%);
+    background-size: 3px 3px;
+  }
+  [data-theme="led"] .b-head { font-size: 1.1em; padding-bottom: .2em; }
+  [data-theme="led"] .b-sub { font-size: .6em; color: var(--led-dim); text-shadow: none; padding-bottom: .4em; }
+  [data-theme="led"] .b-cols { color: var(--led-dim); text-shadow: none; border-bottom: 2px dotted var(--led-off); padding-bottom: .15em; margin-bottom: .25em; }
+  [data-theme="led"] .row { padding: .14em 0; }
+  [data-theme="led"] .badge { font-weight: 900; }
+  [data-theme="led"] .delay { font-size: .55em; color: var(--led-dim); text-shadow: none; margin-left: .25em; vertical-align: .35em; }
+  [data-theme="led"] .c-plat { color: var(--led-dim); }
+  [data-theme="led"] .row.cancelled .c-dest { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
+  [data-theme="led"] .ticker { font-size: .6em; border-top: 2px dotted var(--led-off); margin-top: .4em; padding-top: .4em; }
+  [data-theme="led"] .msg { color: var(--led-dim); }
+
+  /* ============ Design 2: Modern (dunkelblaue Bahnsteiganzeige mit Linienfarben) ============ */
+  [data-theme="modern"] .board {
+    background: linear-gradient(180deg, #0f2240 0%, #0b1a33 100%);
+    border: 1px solid #1f3a63;
+    box-shadow: 0 18px 40px rgba(0,0,0,.5);
+    padding: .75em .85em .5em;
+    color: #fff;
+    font-size: calc(clamp(14px, 4.6cqi, 26px) * var(--fit, 1));
+  }
+  [data-theme="modern"] .b-head { font-weight: 800; font-size: 1.1em; padding-bottom: .1em; }
+  [data-theme="modern"] .b-sub { font-size: .62em; color: #9fb6da; padding-bottom: .6em; font-weight: 500; }
+  [data-theme="modern"] .b-cols { color: #7f98c0; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; padding-bottom: .2em; border-bottom: 1px solid #23406b; }
+  [data-theme="modern"] .row { padding: .36em 0; border-bottom: 1px solid #1a3359; font-weight: 600; min-height: 2.05em; }
+  [data-theme="modern"] .row:last-child { border-bottom: 0; }
+  [data-theme="modern"] .badge {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 2.6em; height: 1.45em; padding: 0 .4em;
+    font-size: .78em; font-weight: 800; color: #fff; background: var(--lc, #555); border-radius: .3em;
+  }
+  [data-theme="modern"] .badge.p-suburban, [data-theme="modern"] .badge.p-bus, [data-theme="modern"] .badge.p-regional, [data-theme="modern"] .badge.p-express { border-radius: 999px; }
+  [data-theme="modern"] .badge.dark-text { color: #111; }
+  [data-theme="modern"] .c-plat { color: #9fb6da; font-weight: 500; }
+  [data-theme="modern"] .c-time { font-weight: 700; }
+  [data-theme="modern"] .delay { font-size: .6em; color: #ff8a80; font-weight: 700; margin-left: .3em; }
+  [data-theme="modern"] .row.cancelled .c-dest { text-decoration: line-through; color: #7f98c0; }
+  [data-theme="modern"] .row.cancelled .c-time { color: #ff8a80; }
+  [data-theme="modern"] .ticker { font-size: .6em; color: #ffd166; margin-top: .4em; padding-top: .5em; border-top: 1px solid #23406b; font-weight: 500; }
+  [data-theme="modern"] .msg { color: #9fb6da; }
+  .msg span { font-size: .75em; } /* kleiner Text, Zeilenhöhe bleibt wie bei Abfahrten */
+
+  /* ============ Einstellungen ============ */
+  .settings { position: fixed; inset: 0; z-index: 50; background: var(--page-bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .settings[hidden] { display: none; }
+  .s-wrap { max-width: 980px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 16px max(40px, env(safe-area-inset-bottom)); }
+  .s-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 30; background: var(--page-bg); padding: 8px 0 12px; }
+  .s-top h1 { font-size: 22px; margin: 0; }
+  .primary { border: 0; background: var(--accent); color: #111; font-weight: 700; border-radius: 10px; padding: 11px 20px; font-size: 15px; }
+  .s-sec { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 22px 0 10px; }
+  .panel { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 14px; padding: 16px; display: grid; gap: 16px; margin-bottom: 14px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .panel-head .n { font-weight: 800; font-size: 15px; }
+  .field > label, .field > .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
+  .inrow { display: flex; gap: 8px; align-items: center; }
+  .ac { position: relative; flex: 1; min-width: 0; }
+  .txt {
+    width: 100%; background: var(--input-bg); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 16px; outline: none;
+  }
+  .txt:focus { border-color: var(--accent); }
+  .txt:disabled { opacity: .5; }
+  select.txt { width: auto; padding: 9px 10px; }
+  .iconbtn { flex: none; width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--panel-border); background: var(--input-bg); font-size: 17px; display: grid; place-items: center; }
+  .iconbtn[disabled] { opacity: .35; cursor: default; }
+  .sugg { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); background: #1c1c1f; border: 1px solid #333338; border-radius: 10px; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+  .sugg[hidden] { display: none; }
+  .sugg button { display: flex; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px 12px; gap: 10px; align-items: center; justify-content: space-between; font-size: 14px; }
+  .sugg button:hover, .sugg button.active { background: #2a2a2f; }
+  .sugg .meta { color: var(--muted); font-size: 12px; flex: none; display: flex; gap: 3px; align-items: center; }
+  .sugg .note { padding: 10px 12px; font-size: 13px; color: var(--muted); }
+  .mini { display: inline-block; font-size: 10px; font-weight: 800; color: #fff; padding: 1px 4px; border-radius: 3px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--panel-border); background: var(--input-bg); border-radius: 999px; padding: 7px 12px; font-size: 13px; font-weight: 600; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .chip .sw { width: 9px; height: 9px; border-radius: 50%; background: var(--sw); opacity: .35; }
+  .chip[aria-pressed="true"] { color: var(--text); border-color: #4a4a52; background: #202024; }
+  .chip[aria-pressed="true"] .sw { opacity: 1; }
+  .chip.line { padding: 5px 8px; }
+  .chip.line .lb { display: inline-block; min-width: 2.2em; text-align: center; padding: 2px 6px; border-radius: 4px; font-weight: 800; color: #fff; background: var(--sw); opacity: .4; }
+  .chip.line[aria-pressed="true"] .lb { opacity: 1; }
+  .chip.line .lb.dark-text { color: #111; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--panel-border); border-radius: 10px; overflow: hidden; }
+  .stepper button { width: 44px; height: 42px; border: 0; background: var(--input-bg); font-size: 20px; }
+  .stepper .val { min-width: 48px; text-align: center; font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .seg { display: inline-flex; flex-wrap: wrap; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 10px; padding: 3px; gap: 2px; }
+  .seg button { border: 0; background: transparent; padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: #2a2a2f; color: var(--text); }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+  .switch input { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 999px; background: #333338; position: relative; flex: none; cursor: pointer; transition: background .2s; margin: 0; }
+  .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::after { transform: translateX(18px); }
+  .switch .t { font-weight: 600; font-size: 15px; }
+  .ghost { border: 1px solid var(--panel-border); background: var(--input-bg); border-radius: 10px; padding: 10px 14px; font-weight: 600; font-size: 14px; }
+  .ghost.danger { color: #ff8a80; }
+  .add { width: 100%; border: 2px dashed #34343a; background: transparent; border-radius: 14px; padding: 16px; font-weight: 700; font-size: 15px; color: var(--muted); }
+  .foot { font-size: 11px; color: #5d5d64; text-align: center; margin-top: 24px; }
+  .foot a { color: inherit; }
+  @media (min-width: 760px) {
+    .panel.two { grid-template-columns: 1fr 1fr; }
+    .panel.two .full { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="dash" id="dash">
+  <header class="dash-head">
+    <div class="clock"><span class="time" id="clockTime">--:--</span><span class="date" id="clockDate"></span></div>
+    <div class="head-btns">
+      <button type="button" class="hbtn" id="fsBtn" title="Vollbild" aria-label="Vollbild">⛶</button>
+      <button type="button" class="hbtn" id="openSettings" title="Einstellungen" aria-label="Einstellungen">⚙</button>
+    </div>
+  </header>
+  <main class="grid" id="grid"></main>
+</div>
+
+<section class="settings" id="settings" hidden aria-label="Einstellungen">
+  <div class="s-wrap">
+    <div class="s-top"><h1>Einstellungen</h1><button type="button" class="primary" id="closeSettings">Fertig</button></div>
+
+    <div class="s-sec">Tafeln</div>
+    <div id="boardCards"></div>
+    <button type="button" class="add" id="addBoard">+ Tafel hinzufügen</button>
+
+    <div class="s-sec">Anzeige</div>
+    <div class="panel two">
+      <div class="field">
+        <span class="lbl">Design</span>
+        <div class="seg" id="themeSeg">
+          <button type="button" data-v="led">LED</button>
+          <button type="button" data-v="modern">Modern</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="lbl">Spalten</span>
+        <div class="seg" id="colsSeg">
+          <button type="button" data-v="auto">Auto</button>
+          <button type="button" data-v="1">1</button>
+          <button type="button" data-v="2">2</button>
+          <button type="button" data-v="3">3</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="s-sec">Dauerbetrieb (Wandtablet)</div>
+    <div class="panel">
+      <div>
+        <label class="switch"><span class="t">Bildschirm wach halten</span><input type="checkbox" id="wakeChk" /></label>
+        <div class="hint" id="wakeHint"></div>
+      </div>
+      <div>
+        <label class="switch"><span class="t">Nachts dimmen</span><input type="checkbox" id="nightChk" /></label>
+        <div class="inrow" style="margin-top:10px">
+          <span class="hint" style="margin:0">von</span><select class="txt" id="nightFrom"></select>
+          <span class="hint" style="margin:0">bis</span><select class="txt" id="nightTo"></select>
+          <span class="hint" style="margin:0">Uhr</span>
+        </div>
+      </div>
+      <div class="hint">
+        Läuft automatisch weiter: Aktualisierung alle 30 s, bei Verbindungsabbruch erneuter Versuch, tägliches Neuladen um 4 Uhr
+        (holt auch neue App-Versionen), leichtes Verschieben der Anzeige gegen Einbrennen. Bedienknöpfe blenden sich nach ein paar Sekunden aus –
+        einmal tippen holt sie zurück.
+      </div>
+    </div>
+
+    <div class="foot">Echtzeitdaten: BVG/VBB über <a href="https://v6.bvg.transport.rest" target="_blank" rel="noopener">v6.bvg.transport.rest</a></div>
+  </div>
+</section>
+
+<script>
+'use strict';
+
+// ============ Konfiguration ============
+const API = 'https://v6.bvg.transport.rest';
+const DEMO = new URLSearchParams(location.search).has('demo');
+const REFRESH_MS = 30000;
+const DURATION_MIN = 120;   // Zeitfenster der Abfrage – lang genug für 5+ Abfahrten auch bei 20-Minuten-Bussen
+const MAX_COUNT = 20;
+const STORE_KEY = DEMO ? 'abfahrten.demo' : 'abfahrten.v1'; // Demo-Daten nicht mit echten Einstellungen mischen
+
+const PRODUCTS = [
+  { key: 'suburban', label: 'S-Bahn', short: 'S',    color: '#008D4F' },
+  { key: 'subway',   label: 'U-Bahn', short: 'U',    color: '#115D91' },
+  { key: 'tram',     label: 'Tram',   short: 'Tram', color: '#BE1414' },
+  { key: 'bus',      label: 'Bus',    short: 'Bus',  color: '#A5027D' },
+  { key: 'ferry',    label: 'Fähre',  short: 'F',    color: '#528DBA' },
+  { key: 'regional', label: 'Regio',  short: 'RE',   color: '#E30613' },
+  { key: 'express',  label: 'Fern',   short: 'ICE',  color: '#6B6B6B' },
+];
+const ALL_PRODUCTS = PRODUCTS.map(p => p.key);
+
+// Offizielle Linienfarben (BVG / S-Bahn Berlin)
+const LINE_COLORS = {
+  U1: '#7DAD4C', U2: '#DA421E', U3: '#16683D', U4: '#F0D722', U5: '#7E5330',
+  U6: '#8C6DAB', U7: '#528DBA', U8: '#224F86', U9: '#F3791D',
+  S1: '#DE4DA4', S2: '#005F27', S25: '#005F27', S26: '#005F27', S3: '#0A4C99',
+  S41: '#A9455D', S42: '#C86722', S45: '#C38737', S46: '#C38737', S47: '#C38737',
+  S5: '#FF5900', S7: '#6F4E9C', S75: '#6F4E9C', S8: '#55A822', S85: '#55A822', S9: '#8A0E30',
+};
+const DARK_TEXT_LINES = new Set(['U4']);
+
+function lineColor(name, product) {
+  if (LINE_COLORS[name]) return LINE_COLORS[name];
+  const p = PRODUCTS.find(x => x.key === product);
+  return p ? p.color : '#555';
+}
+
+// ============ Zustand & Speicherung ============
+// Eine Tafel = eine Haltestelle mit eigenen Filtern und eigener Anzahl Abfahrten.
+function newBoard(init = {}) {
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    title: '', station: null, direction: null,
+    products: [...ALL_PRODUCTS], lines: [], count: 5,
+    ...init,
+  };
+}
+
+const state = {
+  boards: [],
+  theme: 'led',
+  cols: 'auto',
+  wake: true,
+  night: { on: false, from: 23, to: 6 },
+};
+const rt = new Map(); // Laufzeitdaten je Tafel (nicht gespeichert): Abfahrten, Fehler, gesehene Linien …
+
+function boardRt(b) {
+  if (!rt.has(b.id)) rt.set(b.id, { deps: [], error: null, lastUpdate: null, loading: false, ctrl: null, seenLines: new Map(), ticker: null });
+  return rt.get(b.id);
+}
+
+function loadStore() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { /* Speicher nicht verfügbar */ }
+  if (Array.isArray(s.boards)) {
+    state.boards = s.boards.map(b => newBoard({ ...b, count: clampCount(b.count) }));
+  } else if (Array.isArray(s.favorites) && s.favorites.length) {
+    // Übernahme aus Version 1: Favoriten werden zu Tafeln
+    state.boards = s.favorites.map(f => newBoard({ station: f.station, direction: f.direction || null, products: s.products || ALL_PRODUCTS }));
+  } else if (s.station) {
+    state.boards = [newBoard({ station: s.station, direction: s.direction || null, products: s.products || ALL_PRODUCTS })];
+  }
+  if (s.theme === 'led' || s.theme === 'modern') state.theme = s.theme;
+  if (['auto', '1', '2', '3'].includes(s.cols)) state.cols = s.cols;
+  if (typeof s.wake === 'boolean') state.wake = s.wake;
+  if (s.night && typeof s.night === 'object') state.night = { ...state.night, ...s.night };
+}
+
+function saveStore() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      boards: state.boards, theme: state.theme, cols: state.cols, wake: state.wake, night: state.night,
+    }));
+  } catch (e) { /* ignorieren */ }
+}
+
+// ============ Hilfsfunktionen ============
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+const hhmm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const clampCount = n => Math.min(MAX_COUNT, Math.max(1, parseInt(n, 10) || 5));
+
+// "S+U Alexanderplatz (Berlin) [U2]" -> "S+U Alexanderplatz"
+function shortName(name) {
+  return String(name || '').replace(/\s*\[[^\]]*\]/g, '').replace(/\s*\(Berlin\)/g, '').trim();
+}
+
+function stripHtml(s) {
+  const d = document.createElement('div');
+  d.innerHTML = s || '';
+  return (d.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+// Natürliche Sortierung von Liniennamen: S1, S3, S5 … S41, U2, U8, M4, 100, 200
+function lineSort(a, b) {
+  const pa = ALL_PRODUCTS.indexOf(a.product), pb = ALL_PRODUCTS.indexOf(b.product);
+  if (pa !== pb) return pa - pb;
+  return a.name.localeCompare(b.name, 'de', { numeric: true });
+}
+
+async function api(path, params, signal) {
+  const url = new URL(API + path);
+  for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, v);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  const onAbort = () => ctrl.abort();
+  if (signal) signal.addEventListener('abort', onAbort);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+// ============ Datenzugriff ============
+function toStop(l) {
+  return { id: l.id, name: shortName(l.name), products: l.products || {}, distance: l.distance };
+}
+
+async function searchStops(q, signal) {
+  if (DEMO) return demoSearch(q);
+  const list = await api('/locations', { query: q, results: 8, stops: true, addresses: false, poi: false, fuzzy: true }, signal);
+  return list.filter(l => l.type === 'stop' || l.type === 'station').map(toStop);
+}
+
+async function nearbyStops(lat, lon) {
+  if (DEMO) return demoNearby();
+  const list = await api('/locations/nearby', { latitude: lat, longitude: lon, results: 8, distance: 1500, stops: true, poi: false });
+  return list.filter(l => l.type === 'stop' || l.type === 'station').map(toStop);
+}
+
+async function fetchDepartures(b, signal) {
+  if (DEMO) return demoDepartures(b.station.id, b.direction?.id);
+  const params = {
+    duration: DURATION_MIN, direction: b.direction?.id || null,
+    remarks: true, linesOfStops: false, language: 'de',
+  };
+  // Verkehrsmittel schon auf dem Server filtern – spart Datenvolumen bei großen Bahnhöfen
+  for (const k of ALL_PRODUCTS) params[k] = b.products.includes(k);
+  const res = await api(`/stops/${encodeURIComponent(b.station.id)}/departures`, params, signal);
+  const raw = Array.isArray(res) ? res : (res.departures || []);
+  return raw.map(d => ({
+    id: (d.tripId || '') + '|' + (d.plannedWhen || ''),
+    line: d.line?.name || '?',
+    product: d.line?.product || '',
+    dest: shortName(d.direction || d.destination?.name || ''),
+    platform: d.platform || d.plannedPlatform || '',
+    when: new Date(d.when || d.plannedWhen),
+    delayMin: d.delay != null ? Math.round(d.delay / 60) : null,
+    cancelled: !!d.cancelled,
+    warnings: (d.remarks || []).filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean),
+  }));
+}
+
+// ============ Abfahrten laden ============
+async function loadBoard(b) {
+  const r = boardRt(b);
+  if (!b.station) { updateBoard(b); return; }
+  if (r.ctrl) r.ctrl.abort();
+  const ctrl = r.ctrl = new AbortController();
+  r.loading = true;
+  updateBoard(b);
+  try {
+    const deps = await fetchDepartures(b, ctrl.signal);
+    if (ctrl.signal.aborted) return;
+    deps.sort((x, y) => x.when - y.when);
+    r.deps = deps;
+    for (const d of deps) r.seenLines.set(d.line, d.product);
+    r.error = null;
+    r.lastUpdate = new Date();
+  } catch (e) {
+    if (ctrl.signal.aborted) return;
+    r.error = 'Keine Verbindung zur BVG-Schnittstelle';
+  } finally {
+    if (r.ctrl === ctrl) {
+      r.ctrl = null;
+      r.loading = false;
+      updateBoard(b);
+      if (!$('settings').hidden) renderLineChips(b);
+    }
+  }
+}
+
+// Tafel nach Änderung der Haltestelle/Richtung/Verkehrsmittel neu laden
+function reloadBoard(b, { resetLines = false } = {}) {
+  const r = boardRt(b);
+  r.deps = []; r.error = null; r.lastUpdate = null;
+  if (resetLines) r.seenLines = new Map();
+  saveStore();
+  loadBoard(b);
+}
+
+function refreshAll() {
+  if (document.hidden) return;
+  state.boards.forEach(loadBoard);
+}
+
+setInterval(refreshAll, REFRESH_MS);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (state.boards.some(b => { const l = boardRt(b).lastUpdate; return !l || Date.now() - l > 10000; })) refreshAll();
+});
+window.addEventListener('online', refreshAll);
+
+// ============ Darstellung: Dashboard ============
+function timeLabel(d, now) {
+  if (d.cancelled) return 'fällt aus';
+  const min = Math.floor((d.when - now) / 60000);
+  if (min <= 0) return 'sofort';
+  if (min < 60) return min + ' min';
+  return hhmm(d.when);
+}
+
+function boardDescription(b) {
+  const parts = [];
+  if (b.title && b.station) parts.push(b.station.name);
+  if (b.lines.length) parts.push(b.lines.join(' · '));
+  else if (b.products.length < ALL_PRODUCTS.length) parts.push(PRODUCTS.filter(p => b.products.includes(p.key)).map(p => p.label).join(' · '));
+  parts.push(b.direction ? 'Richtung ' + b.direction.name : 'Alle Richtungen');
+  return parts.join(' – ');
+}
+
+function renderGrid() {
+  const grid = $('grid');
+  grid.dataset.cols = state.cols;
+  if (state.cols === 'auto') delete grid.dataset.cols;
+  grid.innerHTML = state.boards.map(b => `
+    <div class="board-wrap" data-board="${b.id}">
+      <section class="board" aria-label="Abfahrtstafel">
+        <div class="b-head"><div class="b-title"></div></div>
+        <div class="b-sub"><span class="b-desc"></span><span class="b-status"></span></div>
+        <div class="b-cols" aria-hidden="true"><span>Linie</span><span>Ziel</span><span class="r">Gl.</span><span class="r">Abfahrt</span></div>
+        <div class="rows" role="list"></div>
+        <div class="ticker"></div>
+      </section>
+    </div>`).join('');
+  state.boards.forEach(b => { boardRt(b).ticker = null; updateBoard(b); });
+  fitToScreen();
+}
+
+// Tafeln so verkleinern, dass alles ohne Scrollen auf den Bildschirm passt (Wandtablet).
+// Alle Maße sind in em angegeben, die Höhe skaliert daher etwa linear mit --fit.
+const MIN_FIT = 0.55;
+function fitToScreen() {
+  const grid = $('grid');
+  grid.style.setProperty('--fit', 1);
+  const avail = window.innerHeight - grid.getBoundingClientRect().top - 16;
+  const need = grid.scrollHeight;
+  if (need <= avail || !state.boards.length) return;
+  let fit = Math.max(MIN_FIT, avail / need);
+  grid.style.setProperty('--fit', fit.toFixed(3));
+  // Rahmen/Abstände skalieren nicht mit – bei Bedarf in kleinen Schritten nachregeln
+  for (let i = 0; i < 6 && grid.scrollHeight > avail && fit > MIN_FIT; i++) {
+    fit = Math.max(MIN_FIT, fit - 0.03);
+    grid.style.setProperty('--fit', fit.toFixed(3));
+  }
+}
+window.addEventListener('resize', debounce(fitToScreen, 200));
+document.fonts?.ready.then(fitToScreen);
+
+function visibleDepartures(b, now) {
+  const r = boardRt(b);
+  return r.deps
+    .filter(d => b.products.includes(d.product) || !ALL_PRODUCTS.includes(d.product))
+    .filter(d => !b.lines.length || b.lines.includes(d.line))
+    .filter(d => d.when - now > -30000)
+    .slice(0, b.count);
+}
+
+function updateBoard(b) {
+  const el = document.querySelector(`[data-board="${b.id}"]`);
+  if (!el) return;
+  const r = boardRt(b);
+  const now = new Date();
+  el.querySelector('.b-title').textContent = b.title || (b.station ? b.station.name : 'Neue Tafel');
+  el.querySelector('.b-desc').textContent = b.station ? boardDescription(b) : '';
+
+  let status = '';
+  if (r.error && r.lastUpdate) status = `offline · Stand ${hhmm(r.lastUpdate)}`;
+  else if (r.lastUpdate) status = (DEMO ? 'DEMO · ' : '') + `Stand ${hhmm(r.lastUpdate)}`;
+  else if (r.loading) status = 'verbinde …';
+  el.querySelector('.b-status').textContent = status;
+
+  const rowsEl = el.querySelector('.rows');
+  const visible = b.station ? visibleDepartures(b, now) : [];
+  let html = '';
+  if (!b.station || !visible.length) {
+    const text = !b.station ? 'Haltestelle in den Einstellungen ⚙ wählen'
+      : r.loading && !r.lastUpdate ? 'Lade Abfahrten …'
+      : r.error && !r.lastUpdate ? r.error
+      : `Keine Abfahrten in den nächsten ${DURATION_MIN} Minuten`;
+    html = `<div class="row msg"><span>${esc(text)}</span></div>`;
+  } else {
+    html = visible.map(d => {
+      const col = lineColor(d.line, d.product);
+      const darkText = DARK_TEXT_LINES.has(d.line) ? ' dark-text' : '';
+      const showDelay = !d.cancelled && d.delayMin != null && d.delayMin >= 2;
+      const blink = !d.cancelled && d.when - now < 60000 ? 'blink' : '';
+      return `<div class="row${d.cancelled ? ' cancelled' : ''}" role="listitem">
+        <span class="c-line"><span class="badge p-${esc(d.product)}${darkText}" style="--lc:${col}">${esc(d.line)}</span></span>
+        <span class="c-dest">${esc(d.dest)}</span>
+        <span class="c-plat">${esc(d.platform)}</span>
+        <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${showDelay ? `<span class="delay">+${d.delayMin}</span>` : ''}</span>
+      </div>`;
+    }).join('');
+  }
+  // Leere Zeilen auffüllen, damit die Tafel eine feste Höhe behält
+  for (let i = Math.max(1, visible.length); i < b.count; i++) html += '<div class="row" aria-hidden="true"><span>&nbsp;</span></div>';
+  rowsEl.innerHTML = html;
+
+  // Laufschrift: nur Meldungen zu den Linien, die diese Tafel zeigt
+  const warnings = [...new Set(r.deps
+    .filter(d => b.products.includes(d.product) && (!b.lines.length || b.lines.includes(d.line)))
+    .flatMap(d => d.warnings))];
+  const sig = warnings.join('§');
+  if (sig !== r.ticker) { // Laufschrift nicht bei jedem Sekundentakt neu starten
+    r.ticker = sig;
+    const t = el.querySelector('.ticker');
+    if (!warnings.length) t.innerHTML = '&nbsp;'; // Zeile bleibt reserviert, damit die Höhe gleich bleibt
+    else {
+      const text = '+++ ' + warnings.join(' +++ ') + ' +++';
+      t.innerHTML = `<span class="run" style="--dur:${Math.max(12, text.length * 0.22)}s">${esc(text)}</span>`;
+    }
+  }
+}
+
+function tick() {
+  const now = new Date();
+  const colon = state.theme === 'led' && now.getSeconds() % 2 ? ' ' : ':';
+  $('clockTime').textContent = pad(now.getHours()) + colon + pad(now.getMinutes());
+  $('clockDate').textContent = now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  document.body.classList.toggle('night', isNight(now));
+  state.boards.forEach(updateBoard);
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  document.querySelector('meta[name="theme-color"]').content = state.theme === 'led' ? '#0a0a0a' : '#0b1a33';
+}
+
+// ============ Dauerbetrieb ============
+function isNight(now) {
+  if (!state.night.on) return false;
+  const h = now.getHours(), { from, to } = state.night;
+  return from > to ? (h >= from || h < to) : (h >= from && h < to);
+}
+
+// Bildschirm wach halten (Screen Wake Lock API)
+let wakeLock = null;
+async function applyWakeLock() {
+  if (!state.wake) {
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    return;
+  }
+  if (!('wakeLock' in navigator) || document.hidden || (wakeLock && !wakeLock.released)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* z. B. ohne Nutzerinteraktion – nächster Versuch beim Antippen */ }
+}
+document.addEventListener('visibilitychange', applyWakeLock);
+
+// Bedienknöpfe & Mauszeiger nach Inaktivität ausblenden
+let idleTimer;
+function wakeUi() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 6000);
+  applyWakeLock();
+}
+['pointerdown', 'pointermove', 'keydown'].forEach(ev => document.addEventListener(ev, wakeUi, { passive: true }));
+
+// Gegen Einbrennen: Anzeige alle 3 Minuten um wenige Pixel verschieben
+const SHIFTS = [[0, 0], [3, 2], [-2, 3], [-3, -2], [2, -3], [0, 3], [3, -1], [-3, 1]];
+let shiftIdx = 0;
+setInterval(() => {
+  shiftIdx = (shiftIdx + 1) % SHIFTS.length;
+  const [x, y] = SHIFTS[shiftIdx];
+  $('dash').style.transform = `translate(${x}px, ${y}px)`;
+}, 3 * 60000);
+
+// Täglich um 4 Uhr neu laden: räumt den Speicher auf und holt neue App-Versionen
+function scheduleDailyReload() {
+  const now = new Date(), next = new Date(now);
+  next.setHours(4, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  setTimeout(function attempt() {
+    if (!$('settings').hidden) { setTimeout(attempt, 10 * 60000); return; } // nicht während der Bearbeitung
+    location.reload();
+  }, next - now);
+}
+
+// Vollbild
+const fsSupported = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+if (!fsSupported) $('fsBtn').style.display = 'none';
+$('fsBtn').addEventListener('click', () => {
+  const d = document, el = d.documentElement;
+  if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  else (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch?.(() => {});
+});
+
+// ============ Einstellungen ============
+function productMinis(products) {
+  return PRODUCTS.filter(p => products && products[p.key])
+    .map(p => `<span class="mini" style="background:${p.color}">${esc(p.short)}</span>`).join('');
+}
+
+function openSettings() {
+  renderSettings();
+  $('settings').hidden = false;
+  $('settings').scrollTop = 0;
+}
+
+function closeSettings() {
+  $('settings').hidden = true;
+  renderGrid();
+  wakeUi();
+}
+
+function renderSettings() {
+  document.querySelectorAll('#themeSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.theme)));
+  document.querySelectorAll('#colsSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.cols)));
+  $('wakeChk').checked = state.wake;
+  $('wakeHint').textContent = 'wakeLock' in navigator
+    ? 'Verhindert, dass das Tablet in den Ruhezustand geht, solange die App im Vordergrund ist.'
+    : 'Dein Browser unterstützt das nicht – bitte die automatische Bildschirmsperre in den Geräteeinstellungen ausschalten.';
+  $('nightChk').checked = state.night.on;
+  const opts = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${pad(h)}:00</option>`).join('');
+  $('nightFrom').innerHTML = opts; $('nightTo').innerHTML = opts;
+  $('nightFrom').value = state.night.from; $('nightTo').value = state.night.to;
+
+  const wrap = $('boardCards');
+  wrap.innerHTML = state.boards.map((b, i) => `
+    <div class="panel two" data-card="${b.id}">
+      <div class="panel-head full">
+        <span class="n">Tafel ${i + 1}</span>
+        <div class="inrow">
+          <button type="button" class="iconbtn" data-act="up" title="Nach oben" aria-label="Nach oben" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" class="iconbtn" data-act="down" title="Nach unten" aria-label="Nach unten" ${i === state.boards.length - 1 ? 'disabled' : ''}>↓</button>
+          <button type="button" class="ghost danger" data-act="del">Entfernen</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Abfahrt von</label>
+        <div class="inrow">
+          <div class="ac"><input class="txt" data-f="station" type="search" autocomplete="off" placeholder="Haltestelle suchen …" /><div class="sugg" hidden></div></div>
+          <button type="button" class="iconbtn" data-act="nearby" title="Haltestellen in der Nähe" aria-label="Haltestellen in der Nähe">📍</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Richtung</label>
+        <div class="inrow">
+          <div class="ac"><input class="txt" data-f="direction" type="search" autocomplete="off" placeholder="Alle Richtungen" /><div class="sugg" hidden></div></div>
+          <button type="button" class="iconbtn" data-act="clearDir" title="Richtung entfernen" aria-label="Richtung entfernen">✕</button>
+        </div>
+        <div class="hint">Nur Fahrten, die über diese Haltestelle fahren.</div>
+      </div>
+      <div class="field full">
+        <span class="lbl">Verkehrsmittel</span>
+        <div class="chips" data-f="products"></div>
+      </div>
+      <div class="field full">
+        <span class="lbl">Linien</span>
+        <div class="chips" data-f="lines"></div>
+        <div class="hint">Keine Auswahl = alle Linien. Angeboten werden die Linien, die hier in den nächsten ${DURATION_MIN} Minuten fahren.</div>
+      </div>
+      <div class="field">
+        <span class="lbl">Anzahl Abfahrten</span>
+        <div class="stepper">
+          <button type="button" data-act="minus" aria-label="Weniger">−</button>
+          <span class="val" data-f="count"></span>
+          <button type="button" data-act="plus" aria-label="Mehr">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Name der Tafel (optional)</label>
+        <input class="txt" data-f="title" type="text" maxlength="40" placeholder="z. B. Zur Arbeit" />
+      </div>
+    </div>`).join('');
+  state.boards.forEach(setupCard);
+}
+
+function cardEl(b) { return document.querySelector(`[data-card="${b.id}"]`); }
+
+function setupCard(b) {
+  const card = cardEl(b);
+  const q = s => card.querySelector(s);
+  const stationIn = q('[data-f="station"]'), dirIn = q('[data-f="direction"]');
+
+  const syncInputs = () => {
+    stationIn.value = b.station ? b.station.name : '';
+    dirIn.value = b.direction ? b.direction.name : '';
+    dirIn.disabled = !b.station;
+    q('[data-act="clearDir"]').disabled = !b.direction;
+    q('[data-f="count"]').textContent = b.count;
+  };
+  syncInputs();
+  q('[data-f="title"]').value = b.title;
+  renderProductChips(b);
+  renderLineChips(b);
+
+  const stationAc = autocomplete(stationIn, syncInputs, s => {
+    if (b.station?.id !== s.id) { b.direction = null; b.lines = []; }
+    b.station = s;
+    syncInputs();
+    renderLineChips(b);
+    reloadBoard(b, { resetLines: true });
+  });
+  autocomplete(dirIn, syncInputs, d => {
+    if (d.id === b.station?.id) { syncInputs(); return; }
+    b.direction = d;
+    syncInputs();
+    reloadBoard(b);
+  });
+
+  q('[data-f="title"]').addEventListener('input', e => { b.title = e.target.value.trim(); saveStore(); });
+
+  card.addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if (btn) {
+      const act = btn.dataset.act, i = state.boards.indexOf(b);
+      if (act === 'clearDir') { b.direction = null; syncInputs(); reloadBoard(b); }
+      else if (act === 'minus' || act === 'plus') { b.count = clampCount(b.count + (act === 'plus' ? 1 : -1)); syncInputs(); saveStore(); }
+      else if (act === 'up' || act === 'down') {
+        const j = i + (act === 'up' ? -1 : 1);
+        [state.boards[i], state.boards[j]] = [state.boards[j], state.boards[i]];
+        saveStore(); renderSettings();
+      } else if (act === 'del') {
+        if (!confirm(`Tafel ${i + 1}${b.station ? ' (' + b.station.name + ')' : ''} entfernen?`)) return;
+        state.boards.splice(i, 1);
+        boardRt(b).ctrl?.abort();
+        rt.delete(b.id);
+        saveStore(); renderSettings();
+      } else if (act === 'nearby') findNearby(btn, stationIn, stationAc);
+      return;
+    }
+    const pc = e.target.closest('[data-product]');
+    if (pc) {
+      const k = pc.dataset.product;
+      b.products = b.products.includes(k) ? b.products.filter(x => x !== k) : ALL_PRODUCTS.filter(x => x === k || b.products.includes(x));
+      renderProductChips(b);
+      renderLineChips(b);
+      reloadBoard(b);
+      return;
+    }
+    const lc = e.target.closest('[data-line]');
+    if (lc) {
+      const l = lc.dataset.line;
+      b.lines = b.lines.includes(l) ? b.lines.filter(x => x !== l) : [...b.lines, l];
+      renderLineChips(b);
+      saveStore();
+    }
+  });
+}
+
+function renderProductChips(b) {
+  const el = cardEl(b)?.querySelector('[data-f="products"]');
+  if (!el) return;
+  el.innerHTML = PRODUCTS.map(p =>
+    `<button type="button" class="chip" data-product="${p.key}" aria-pressed="${b.products.includes(p.key)}" style="--sw:${p.color}"><span class="sw"></span>${esc(p.label)}</button>`
+  ).join('');
+}
+
+function renderLineChips(b) {
+  const el = cardEl(b)?.querySelector('[data-f="lines"]');
+  if (!el) return;
+  const seen = new Map(boardRt(b).seenLines);
+  for (const l of b.lines) if (!seen.has(l)) seen.set(l, ''); // gewählte Linien immer anzeigen, auch wenn gerade keine fährt
+  const list = [...seen].map(([name, product]) => ({ name, product }))
+    .filter(l => !l.product || b.products.includes(l.product))
+    .sort(lineSort);
+  if (!b.station) { el.innerHTML = '<span class="hint" style="margin:0">Erst eine Haltestelle wählen.</span>'; return; }
+  if (!list.length) { el.innerHTML = '<span class="hint" style="margin:0">Linien werden geladen …</span>'; return; }
+  el.innerHTML = list.map(l => {
+    const dark = DARK_TEXT_LINES.has(l.name) ? ' dark-text' : '';
+    return `<button type="button" class="chip line" data-line="${esc(l.name)}" aria-pressed="${b.lines.includes(l.name)}" style="--sw:${lineColor(l.name, l.product)}"><span class="lb${dark}">${esc(l.name)}</span></button>`;
+  }).join('');
+}
+
+function findNearby(btn, input, ac) {
+  const done = () => { btn.disabled = false; btn.textContent = '📍'; };
+  const fail = msg => { done(); ac.show([], msg); };
+  if (!DEMO && !navigator.geolocation) { fail('Standort wird von diesem Browser nicht unterstützt'); return; }
+  btn.disabled = true;
+  btn.textContent = '…';
+  const found = async (lat, lon) => {
+    try {
+      const res = await nearbyStops(lat, lon);
+      done();
+      input.focus();
+      ac.show(res, res.length ? 'In der Nähe' : 'Keine Haltestelle in der Nähe gefunden');
+    } catch (e) { fail('Suche fehlgeschlagen – keine Verbindung'); }
+  };
+  if (DEMO) { found(52.52, 13.41); return; }
+  navigator.geolocation.getCurrentPosition(
+    p => found(p.coords.latitude, p.coords.longitude),
+    () => fail('Standort nicht verfügbar – bitte Freigabe prüfen'),
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+  );
+}
+
+// ============ Autovervollständigung ============
+function autocomplete(input, reset, onPick) {
+  const list = input.parentElement.querySelector('.sugg');
+  let items = [], active = -1, ctrl = null;
+
+  function show(entries, note) {
+    items = entries;
+    active = -1;
+    if (!entries.length && !note) { list.hidden = true; return; }
+    list.innerHTML = (note ? `<div class="note">${esc(note)}</div>` : '') + entries.map((s, i) =>
+      `<button type="button" data-i="${i}"><span>${esc(s.name)}</span><span class="meta">${s.distance != null ? `${s.distance} m ` : ''}${productMinis(s.products)}</span></button>`
+    ).join('');
+    list.hidden = false;
+  }
+
+  const run = debounce(async q => {
+    if (ctrl) ctrl.abort();
+    const c = ctrl = new AbortController();
+    try {
+      const res = await searchStops(q, c.signal);
+      if (input.value.trim() === q) show(res, res.length ? '' : 'Keine Haltestelle gefunden');
+    } catch (e) {
+      if (!c.signal.aborted) show([], 'Suche fehlgeschlagen – keine Verbindung');
+    }
+  }, 250);
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    if (q.length < 2) { list.hidden = true; return; }
+    run(q);
+  });
+  input.addEventListener('focus', () => input.select());
+  input.addEventListener('keydown', e => {
+    if (list.hidden || !items.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      list.querySelectorAll('button').forEach((x, i) => x.classList.toggle('active', i === active));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      pick(items[Math.max(0, active)]);
+    } else if (e.key === 'Escape') {
+      list.hidden = true;
+    }
+  });
+  list.addEventListener('mousedown', e => e.preventDefault()); // Fokus behalten, damit blur den Klick nicht schluckt
+  list.addEventListener('click', e => {
+    const x = e.target.closest('button[data-i]');
+    if (x) pick(items[+x.dataset.i]);
+  });
+  input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; reset(); }, 150));
+
+  function pick(s) {
+    list.hidden = true;
+    input.blur();
+    onPick({ id: s.id, name: s.name });
+  }
+  return { show };
+}
+
+// ============ Ereignisse (global) ============
+$('openSettings').addEventListener('click', openSettings);
+$('closeSettings').addEventListener('click', closeSettings);
+$('addBoard').addEventListener('click', () => {
+  const b = newBoard();
+  state.boards.push(b);
+  saveStore();
+  renderSettings();
+  const card = cardEl(b);
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.querySelector('[data-f="station"]').focus({ preventScroll: true });
+});
+$('themeSeg').addEventListener('click', e => {
+  const x = e.target.closest('[data-v]'); if (!x) return;
+  state.theme = x.dataset.v; saveStore(); applyTheme(); renderSettings();
+});
+$('colsSeg').addEventListener('click', e => {
+  const x = e.target.closest('[data-v]'); if (!x) return;
+  state.cols = x.dataset.v; saveStore(); renderSettings();
+});
+$('wakeChk').addEventListener('change', e => { state.wake = e.target.checked; saveStore(); applyWakeLock(); });
+$('nightChk').addEventListener('change', e => { state.night.on = e.target.checked; saveStore(); });
+$('nightFrom').addEventListener('change', e => { state.night.from = +e.target.value; saveStore(); });
+$('nightTo').addEventListener('change', e => { state.night.to = +e.target.value; saveStore(); });
+
+// ============ Demo-Modus (?demo) – Beispieldaten für die Vorschau ============
+const DEMO_STOPS = [
+  { id: 'd-alex', name: 'S+U Alexanderplatz', products: { suburban: 1, subway: 1, tram: 1, bus: 1, regional: 1 }, distance: 180 },
+  { id: 'd-fried', name: 'S+U Friedrichstr.', products: { suburban: 1, subway: 1, tram: 1, bus: 1, regional: 1 }, distance: 1450 },
+  { id: 'd-ost', name: 'S Ostkreuz', products: { suburban: 1, tram: 1, bus: 1, regional: 1 } },
+  { id: 'd-herm', name: 'U Hermannplatz', products: { subway: 1, bus: 1 } },
+  { id: 'd-witt', name: 'S+U Wittenau', products: { suburban: 1, subway: 1, bus: 1 } },
+  { id: 'd-zoo', name: 'S+U Zoologischer Garten', products: { suburban: 1, subway: 1, bus: 1, regional: 1 } },
+  { id: 'd-hbf', name: 'S+U Hauptbahnhof', products: { suburban: 1, subway: 1, tram: 1, bus: 1, regional: 1, express: 1 } },
+  { id: 'd-pankow', name: 'S+U Pankow', products: { suburban: 1, subway: 1, tram: 1, bus: 1 } },
+];
+const DEMO_LINES = [
+  // Linie, Produkt, Ziel, Gleis, Takt (min), Versatz, Halte in Fahrtrichtung
+  ['S5', 'suburban', 'Strausberg Nord', '1', 10, 2, ['d-ost']],
+  ['S5', 'suburban', 'Westkreuz', '2', 10, 6, ['d-fried', 'd-hbf', 'd-zoo']],
+  ['S7', 'suburban', 'Ahrensfelde', '1', 10, 7, ['d-ost']],
+  ['S7', 'suburban', 'Potsdam Hbf', '2', 10, 1, ['d-fried', 'd-hbf', 'd-zoo']],
+  ['S3', 'suburban', 'Erkner', '1', 10, 4, ['d-ost']],
+  ['S9', 'suburban', 'Flughafen BER', '1', 20, 12, ['d-ost']],
+  ['U2', 'subway', 'Pankow', '1', 5, 3, ['d-pankow']],
+  ['U2', 'subway', 'Ruhleben', '2', 5, 1, ['d-zoo']],
+  ['U5', 'subway', 'Hönow', '1', 5, 4, []],
+  ['U5', 'subway', 'Hauptbahnhof', '2', 5, 2, ['d-hbf']],
+  ['U8', 'subway', 'Wittenau', '1', 5, 0, ['d-witt']],
+  ['U8', 'subway', 'Hermannstr.', '2', 5, 3, ['d-herm']],
+  ['M4', 'tram', 'Zingster Str.', '', 6, 5, []],
+  ['M5', 'tram', 'Hohenschönhausen', '', 10, 8, []],
+  ['M2', 'tram', 'Heinersdorf', '', 10, 9, []],
+  ['100', 'bus', 'Zoologischer Garten', '', 10, 6, ['d-zoo']],
+  ['200', 'bus', 'Michelangelostr.', '', 10, 11, []],
+  ['248', 'bus', 'Ostbahnhof', '', 20, 3, []],
+  ['RE1', 'regional', 'Frankfurt (Oder)', '12', 30, 14, ['d-ost']],
+];
+const DEMO_WARNINGS = {
+  U8: 'U8: Aufzug am Bahnsteig Richtung Hermannstr. außer Betrieb',
+  S9: 'S9: Bauarbeiten – zwischen Schöneweide und Flughafen BER Ersatzverkehr mit Bussen',
+};
+
+function demoSearch(q) {
+  const n = q.toLowerCase();
+  return DEMO_STOPS.filter(s => s.name.toLowerCase().includes(n)).map(s => ({ ...s, distance: undefined }));
+}
+function demoNearby() { return DEMO_STOPS.filter(s => s.distance != null); }
+
+function demoDepartures(stationId, directionId) {
+  const now = Date.now();
+  const startMin = Math.floor(now / 60000);
+  const shift = [...stationId].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
+  const out = [];
+  for (const [line, product, dest, platform, every, offset, via] of DEMO_LINES) {
+    if (directionId && !via.includes(directionId)) continue;
+    for (let m = startMin - 1; m < startMin + DURATION_MIN; m++) {
+      if ((m - offset - shift) % every !== 0) continue;
+      const seed = (m * 7 + dest.length * 3) % 11;
+      const delayMin = seed === 2 ? 4 : seed === 6 ? 2 : seed === 9 ? 1 : 0;
+      out.push({
+        id: line + dest + m,
+        line, product, dest, platform,
+        when: new Date((m + delayMin) * 60000 + 20000),
+        delayMin,
+        cancelled: line === 'M4' && seed % 2 === 1,
+        warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
+      });
+    }
+  }
+  return out;
+}
+
+// ============ Start ============
+loadStore();
+if (DEMO && !state.boards.length) {
+  const alex = { id: 'd-alex', name: 'S+U Alexanderplatz' };
+  state.boards = [
+    newBoard({ title: 'U8', station: alex, lines: ['U8'], count: 5 }),
+    newBoard({ station: { id: 'd-ost', name: 'S Ostkreuz' }, products: ['suburban'], count: 5 }),
+    newBoard({ title: 'Bus vor der Tür', station: alex, products: ['bus'], count: 4 }),
+    newBoard({ station: alex, products: ['tram'], lines: ['M4', 'M5'], count: 4 }),
+  ];
+}
+applyTheme();
+renderGrid();
+tick();
+setInterval(tick, 1000);
+refreshAll();
+scheduleDailyReload();
+wakeUi();
+if (!state.boards.length) { state.boards.push(newBoard()); renderGrid(); openSettings(); }
+</script>
+</body>
+</html>
