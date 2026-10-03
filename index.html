@@ -272,7 +272,7 @@
       </div>
     </div>
 
-    <div class="foot">Echtzeitdaten: BVG/VBB über <a href="https://v6.bvg.transport.rest" target="_blank" rel="noopener">v6.bvg.transport.rest</a></div>
+    <div class="foot">Echtzeitdaten: BVG/VBB über <a href="https://v6.bvg.transport.rest" target="_blank" rel="noopener">v6.bvg.transport.rest</a>, ersatzweise <a href="https://v6.vbb.transport.rest" target="_blank" rel="noopener">v6.vbb.transport.rest</a></div>
   </div>
 </section>
 
@@ -280,7 +280,13 @@
 'use strict';
 
 // ============ Konfiguration ============
-const API = 'https://v6.bvg.transport.rest';
+// Zwei gleich aufgebaute Datenquellen (gleiche Haltestellen-IDs, gleiches Antwortformat).
+// Antwortet die erste nicht, nimmt die App automatisch die zweite und bleibt dann dabei.
+const APIS = [
+  { url: 'https://v6.bvg.transport.rest', name: 'BVG' },
+  { url: 'https://v6.vbb.transport.rest', name: 'VBB' },
+];
+let apiIdx = 0;
 const DEMO = new URLSearchParams(location.search).has('demo');
 const REFRESH_MS = 30000;
 const DURATION_MIN = 120;   // Zeitfenster der Abfrage – lang genug für 5+ Abfahrten auch bei 20-Minuten-Bussen
@@ -395,10 +401,26 @@ function lineSort(a, b) {
 }
 
 async function api(path, params, signal) {
-  const url = new URL(API + path);
+  let lastErr;
+  for (let n = 0; n < APIS.length; n++) {
+    const i = (apiIdx + n) % APIS.length;
+    try {
+      const res = await apiFrom(APIS[i].url, path, params, signal);
+      apiIdx = i;
+      return res;
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+async function apiFrom(base, path, params, signal) {
+  const url = new URL(base + path);
   for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, v);
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
+  const timer = setTimeout(() => ctrl.abort(), 10000);
   const onAbort = () => ctrl.abort();
   if (signal) signal.addEventListener('abort', onAbort);
   try {
@@ -469,7 +491,7 @@ async function loadBoard(b) {
     r.lastUpdate = new Date();
   } catch (e) {
     if (ctrl.signal.aborted) return;
-    r.error = 'Keine Verbindung zur BVG-Schnittstelle';
+    r.error = 'Keine Verbindung zu BVG und VBB';
   } finally {
     if (r.ctrl === ctrl) {
       r.ctrl = null;
@@ -576,7 +598,7 @@ function updateBoard(b) {
 
   let status = '';
   if (r.error && r.lastUpdate) status = `offline · Stand ${hhmm(r.lastUpdate)}`;
-  else if (r.lastUpdate) status = (DEMO ? 'DEMO · ' : '') + `Stand ${hhmm(r.lastUpdate)}`;
+  else if (r.lastUpdate) status = (DEMO ? 'DEMO · ' : APIS[apiIdx].name + ' · ') + `Stand ${hhmm(r.lastUpdate)}`;
   else if (r.loading) status = 'verbinde …';
   el.querySelector('.b-status').textContent = status;
 
