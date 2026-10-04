@@ -73,7 +73,18 @@
   .b-dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: .62em; }
   .b-status { flex: none; font-size: .55em; }
   .ticker:empty { display: none; }
-  .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 1.9em 2em 4.6em; column-gap: .6em; align-items: center; }
+  /* Feste Spaltenplätze; Abstände als Innenabstand, damit ausgeblendete Spalten (0 breit) keinen Platz kosten */
+  .board-wrap { --occ-w: 2.5em; --plat-w: 2.6em; }
+  .board-wrap.no-occ { --occ-w: 0px; }
+  .board-wrap.no-plat { --plat-w: 0px; }
+  .no-occ .c-occ, .no-plat .c-plat { display: none !important; }
+  .b-cols .c-dest, .b-cols .c-occ { display: block; }
+  .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) var(--occ-w) var(--plat-w) 5.2em; align-items: center; }
+  .c-line { grid-column: 1; }
+  .c-dest { grid-column: 2; padding-left: .6em; }
+  .c-occ { grid-column: 3; padding-left: .6em; }
+  .c-plat { grid-column: 4; padding-left: .6em; }
+  .c-time { grid-column: 5; padding-left: .6em; }
   .b-cols .c, .row .c-occ { text-align: center; }
   /* Auslastung: immer drei Figuren, je nach Stufe 1–3 farbig (grün/gelb/rot) */
   .c-occ { display: flex; justify-content: center; gap: .1em; }
@@ -81,7 +92,7 @@
   .occ-low .on { color: #4fe07a; }
   .occ-med .on { color: #ffd23f; }
   .occ-high .on { color: #ff5a46; }
-  .b-cols > span { font-size: .5em; }
+  .b-cols i { font-style: normal; font-size: .5em; }
   .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
   .c-dest { display: flex; align-items: center; gap: .3em; min-width: 0; white-space: nowrap; }
   .c-dest .dn { overflow: hidden; text-overflow: ellipsis; }
@@ -92,6 +103,24 @@
   .row.cancelled .c-plat { display: none; }
   .row.cancelled .c-occ { display: none; }
   .row.cancelled .c-time { grid-column: 3 / 6; }
+  .row.msg { grid-column: 1 / -1; }
+  /* Verbindungstafel: Ab | Linien mit Umstiegen | An | Dauer */
+  .board-wrap.conn .b-cols, .board-wrap.conn .row { grid-template-columns: 4.8em minmax(0, 1fr) var(--occ-w) 5em 4.2em; }
+  /* Schmale Verbindungstafel: Dauer weglassen, damit die Linien (U8 › S25) Platz haben */
+  .board-wrap.conn.narrow .b-cols, .board-wrap.conn.narrow .row { grid-template-columns: 4.8em minmax(0, 1fr) var(--occ-w) 5em; }
+  .j-occ { display: flex; justify-content: center; gap: .1em; padding-left: .6em; }
+  .b-cols .j-occ { display: block; text-align: center; }
+  .no-occ .j-occ { display: none !important; }
+  .board-wrap.conn.narrow .j-dur { display: none; }
+  .b-cols .j-lines { display: block; }
+  .j-lines, .j-arr, .j-dur { padding-left: .6em; }
+  .j-dep, .j-arr, .j-dur { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .j-arr, .j-dur, .b-cols .j-arr, .b-cols .j-dur { text-align: right; }
+  .j-lines { display: flex; align-items: center; gap: .3em; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .j-sep { opacity: .6; }
+  .j-leg { display: inline-flex; align-items: baseline; white-space: nowrap; }
+  .j-leg .delay { margin-left: .15em; }
+  .row.cancelled .j-lines { text-decoration: line-through; opacity: .6; }
   .row.msg { display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ticker { overflow: hidden; white-space: nowrap; }
   .ticker .run { display: inline-block; padding-left: 100%; animation: ticker var(--dur, 30s) linear infinite; }
@@ -145,7 +174,7 @@
   /* ============ Design 1b: LED kräftig (volle Pixel, besser lesbar aus der Entfernung) ============ */
   [data-theme="ledbold"] .board { font-family: VT323, "Courier New", monospace; font-weight: 400; font-size: calc(var(--fs, 20px) * 1.3); letter-spacing: .03em; text-shadow: 0 0 4px rgba(255,160,0,.45); }
   [data-theme="ledbold"] .board::after { display: none; }
-  [data-theme="ledbold"] .b-cols > span { font-size: .6em; }
+  [data-theme="ledbold"] .b-cols i { font-size: .6em; }
   [data-theme="ledbold"] .b-dir, [data-theme="ledbold"] .ticker { font-size: .7em; }
 
   /* ============ Design 2: Modern (dunkelblaue Bahnsteiganzeige mit Linienfarben) ============ */
@@ -235,6 +264,7 @@
   .switch .t { font-weight: 600; font-size: 15px; }
   .ghost { border: 1px solid var(--panel-border); background: var(--input-bg); border-radius: 10px; padding: 10px 14px; font-weight: 600; font-size: 14px; }
   .ghost.danger { color: #ff8a80; }
+  .card-conn .only-dep { display: none; }
   .add { width: 100%; border: 2px dashed #34343a; background: transparent; border-radius: 14px; padding: 16px; font-weight: 700; font-size: 15px; color: var(--muted); }
   .foot { font-size: 11px; color: #5d5d64; text-align: center; margin-top: 24px; }
   .foot a { color: inherit; }
@@ -362,6 +392,7 @@ function lineColor(name, product) {
 function newBoard(init = {}) {
   return {
     id: Math.random().toString(36).slice(2, 10),
+    type: 'dep', // 'dep' = Abfahrten einer Haltestelle, 'conn' = Verbindungen von „station“ nach „direction“
     title: '', station: null, direction: null,
     products: [...ALL_PRODUCTS], lines: [], count: 5, wide: false,
     ...init,
@@ -378,7 +409,7 @@ const state = {
 const rt = new Map(); // Laufzeitdaten je Tafel (nicht gespeichert): Abfahrten, Fehler, gesehene Linien …
 
 function boardRt(b) {
-  if (!rt.has(b.id)) rt.set(b.id, { deps: [], error: null, lastUpdate: null, loading: false, ctrl: null, seenLines: new Map(), ticker: null });
+  if (!rt.has(b.id)) rt.set(b.id, { deps: [], conns: [], error: null, lastUpdate: null, loading: false, ctrl: null, seenLines: new Map(), ticker: null });
   return rt.get(b.id);
 }
 
@@ -501,7 +532,11 @@ const ACC_ICON = '<svg class="acc" viewBox="0 0 24 24" role="img" aria-label="ba
 // Erwartete Auslastung: der BVG-Dienst liefert sie als Feld „occupancy“ (low/medium/high),
 // der VBB-Dienst als Hinweis mit Code „text.occup.loc.max.11/12/13“.
 const OCC_LEVEL = { low: 'low', medium: 'med', high: 'high' };
-const OCC_CODES = { 'text.occup.loc.max.11': 'low', 'text.occup.loc.max.12': 'med', 'text.occup.loc.max.13': 'high' };
+const OCC_CODES = {
+  'text.occup.loc.max.11': 'low', 'text.occup.loc.max.12': 'med', 'text.occup.loc.max.13': 'high',
+  'text.occup.jny.max.11': 'low', 'text.occup.jny.max.12': 'med', 'text.occup.jny.max.13': 'high', // Teilstrecken von Verbindungen
+};
+const OCC_RANK = { low: 1, med: 2, high: 3 };
 function parseOccupancy(d) {
   if (OCC_LEVEL[d.occupancy]) return OCC_LEVEL[d.occupancy];
   for (const r of d.remarks || []) if (OCC_CODES[r.code]) return OCC_CODES[r.code];
@@ -543,20 +578,62 @@ async function fetchDepartures(b, signal) {
   }));
 }
 
+// ============ Verbindungen (Tafel-Art „Verbindung“) ============
+async function fetchJourneys(b, signal) {
+  if (DEMO) return demoJourneys(b.station.id, b.direction.id);
+  const params = {
+    from: b.station.id, to: b.direction.id, results: Math.max(b.count + 2, 4),
+    stopovers: false, remarks: true, language: 'de',
+  };
+  for (const k of ALL_PRODUCTS) params[k] = b.products.includes(k);
+  const res = await api('/journeys', params, signal);
+  return (res.journeys || []).map(parseJourney).filter(Boolean);
+}
+
+// Eine Verbindung auf das Nötige verdichten: erste Abfahrt, letzte Ankunft, Linien der Fahrten (ohne Fußwege)
+function parseJourney(j) {
+  const legs = (j.legs || []).filter(l => !l.walking && l.line);
+  if (!legs.length) return null;
+  const first = legs[0], last = legs[legs.length - 1];
+  const min = sec => sec != null ? Math.round(sec / 60) : null;
+  return {
+    id: (j.refreshToken || '') + '|' + first.plannedDeparture,
+    when: new Date(first.departure || first.plannedDeparture),
+    delayMin: min(first.departureDelay),
+    arr: new Date(last.arrival || last.plannedArrival),
+    arrDelayMin: min(last.arrivalDelay),
+    // je Teilstrecke die Abweichung bei der Abfahrt – steht in der Kette direkt hinter der Linie
+    lines: legs.map(l => ({ name: l.line.name, product: l.line.product, delayMin: min(l.departureDelay) })),
+    cancelled: legs.some(l => l.cancelled),
+    // höchste Auslastung aller Teilstrecken – darauf muss man sich einstellen
+    occupancy: legs.map(parseOccupancy).filter(Boolean).sort((a, b) => OCC_RANK[b] - OCC_RANK[a])[0] || null,
+    warnings: [...new Set(legs.flatMap(l => (l.remarks || [])
+      .filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean)))],
+  };
+}
+
 // ============ Abfahrten laden ============
 async function loadBoard(b) {
   const r = boardRt(b);
-  if (!b.station) { updateBoard(b); return; }
+  if (!b.station || (b.type === 'conn' && !b.direction)) { updateBoard(b); return; }
+  // Verbindungssuchen sind aufwendiger – nur jede Minute statt alle 30 s
+  if (b.type === 'conn' && r.lastUpdate && !r.error && Date.now() - r.lastUpdate < 55000) return;
   if (r.ctrl) r.ctrl.abort();
   const ctrl = r.ctrl = new AbortController();
   r.loading = true;
   updateBoard(b);
   try {
-    const deps = await fetchDepartures(b, ctrl.signal);
-    if (ctrl.signal.aborted) return;
-    deps.sort((x, y) => x.when - y.when);
-    r.deps = deps;
-    for (const d of deps) r.seenLines.set(d.line, d.product);
+    if (b.type === 'conn') {
+      const conns = await fetchJourneys(b, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      r.conns = conns.sort((x, y) => x.when - y.when);
+    } else {
+      const deps = await fetchDepartures(b, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      deps.sort((x, y) => x.when - y.when);
+      r.deps = deps;
+      for (const d of deps) r.seenLines.set(d.line, d.product);
+    }
     r.error = null;
     r.lastUpdate = new Date();
   } catch (e) {
@@ -575,7 +652,7 @@ async function loadBoard(b) {
 // Tafel nach Änderung der Haltestelle/Richtung/Verkehrsmittel neu laden
 function reloadBoard(b, { resetLines = false } = {}) {
   const r = boardRt(b);
-  r.deps = []; r.error = null; r.lastUpdate = null;
+  r.deps = []; r.conns = []; r.error = null; r.lastUpdate = null;
   if (resetLines) r.seenLines = new Map();
   saveStore();
   loadBoard(b);
@@ -583,7 +660,7 @@ function reloadBoard(b, { resetLines = false } = {}) {
 
 function refreshAll() {
   if (document.hidden) return;
-  state.boards.forEach(loadBoard);
+  state.boards.forEach(b => loadBoard(b));
 }
 
 setInterval(refreshAll, REFRESH_MS);
@@ -594,6 +671,39 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online', refreshAll);
 
 // ============ Darstellung: Dashboard ============
+function delayHtml(min) {
+  // Abweichung vom Fahrplan wie in der BVG-App: rot +5 (zu spät), grün −2 (zu früh)
+  if (min == null || min === 0) return '';
+  return min > 0 ? `<span class="delay late">+${min}</span>` : `<span class="delay early">−${-min}</span>`;
+}
+
+function badgeHtml(name, product) {
+  const dark = DARK_TEXT_LINES.has(name) ? ' dark-text' : '';
+  return `<span class="badge p-${esc(product)}${dark}" style="--lc:${lineColor(name, product)}">${esc(name)}</span>`;
+}
+
+function durationLabel(ms) {
+  const m = Math.round(ms / 60000);
+  return m < 60 ? m + ' min' : Math.floor(m / 60) + ':' + pad(m % 60) + ' h';
+}
+
+function connRowsHtml(b, now) {
+  const r = boardRt(b);
+  const list = r.conns.filter(j => j.when - now > -30000).slice(0, b.count);
+  if (!list.length) return { html: '', n: 0 };
+  const html = list.map(j => {
+    const blink = !j.cancelled && j.when - now < 60000 ? 'blink' : '';
+    return `<div class="row${j.cancelled ? ' cancelled' : ''}" role="listitem">
+      <span class="j-dep"><span class="${blink}">${esc(timeLabel(j, now))}</span></span>
+      <span class="j-lines">${j.lines.map(l => `<span class="j-leg">${badgeHtml(l.name, l.product)}${j.cancelled ? '' : delayHtml(l.delayMin)}</span>`).join('<span class="j-sep">›</span>')}</span>
+      <span class="j-occ">${!j.cancelled && j.occupancy ? OCC_ICONS[j.occupancy] : ''}</span>
+      <span class="j-arr">${j.cancelled ? '' : esc(hhmm(j.arr)) + delayHtml(j.arrDelayMin)}</span>
+      <span class="j-dur">${j.cancelled ? '' : esc(durationLabel(j.arr - j.when))}</span>
+    </div>`;
+  }).join('');
+  return { html, n: list.length };
+}
+
 function timeLabel(d, now) {
   if (d.cancelled) return 'fällt aus';
   const min = Math.floor((d.when - now) / 60000);
@@ -613,10 +723,12 @@ function boardDirection(b) {
 function renderGrid() {
   const grid = $('grid');
   grid.innerHTML = state.boards.map(b => `
-    <div class="board-wrap${b.wide ? ' wide' : ''}" data-board="${b.id}">
+    <div class="board-wrap${b.wide ? ' wide' : ''}${b.type === 'conn' ? ' conn' : ''}" data-board="${b.id}">
       <section class="board" aria-label="Abfahrtstafel">
         <div class="b-head"><span class="b-title"></span><span class="b-dir"></span><span class="b-status"></span></div>
-        <div class="b-cols" aria-hidden="true"><span>Linie</span><span>Ziel</span><span class="c">Ausl.</span><span class="r">Gl.</span><span class="r">Abfahrt</span></div>
+        ${b.type === 'conn'
+          ? '<div class="b-cols" aria-hidden="true"><span class="j-dep"><i>Ab</i></span><span class="j-lines"><i>Verbindung</i></span><span class="j-occ c"><i>Ausl.</i></span><span class="j-arr r"><i>An</i></span><span class="j-dur r"><i>Dauer</i></span></div>'
+          : `<div class="b-cols" aria-hidden="true"><span class="c-line"><i>Linie</i></span><span class="c-dest"><i>Ziel</i></span><span class="c-occ c"><i>Ausl.</i></span><span class="c-plat r"><i>Gl.</i></span><span class="c-time r"><i>Abfahrt</i></span></div>`}
         <div class="rows" role="list"></div>
         <div class="ticker"></div>
       </section>
@@ -653,6 +765,11 @@ function fitToScreen() {
   }
   grid.dataset.cols = best.cols;
   root.style.setProperty('--fs', Math.floor(best.fs * 4) / 4 + 'px');
+  // Verbindungstafeln, die weniger als ~25 Zeichen breit sind, verzichten auf die Spalte „Dauer“
+  document.querySelectorAll('.board-wrap.conn').forEach(w => {
+    const bd = w.querySelector('.board');
+    w.classList.toggle('narrow', bd.clientWidth / parseFloat(getComputedStyle(bd).fontSize) < 25);
+  });
 }
 window.addEventListener('resize', debounce(fitToScreen, 200));
 document.fonts?.ready.then(fitToScreen);
@@ -678,7 +795,14 @@ function updateBoard(b) {
     : r.loading && !r.lastUpdate ? 'verbinde …' : '';
 
   const rowsEl = el.querySelector('.rows');
+  if (b.type === 'conn') { updateConnBoard(b, el, r, now, rowsEl); return; }
   const visible = b.station ? visibleDepartures(b, now) : [];
+  // Spalten ohne Daten ausblenden (z. B. keine Auslastung bei der S-Bahn, kein Gleis beim Bus) –
+  // erst wenn Daten da sind, damit beim Laden nichts springt
+  if (r.lastUpdate) {
+    el.classList.toggle('no-occ', !r.deps.some(d => d.occupancy));
+    el.classList.toggle('no-plat', !r.deps.some(d => d.platform));
+  }
   let html = '';
   if (!b.station || !visible.length) {
     const text = !b.station ? 'Haltestelle in den Einstellungen ⚙ wählen'
@@ -691,18 +815,13 @@ function updateBoard(b) {
     html = visible.map(d => {
       const col = lineColor(d.line, d.product);
       const darkText = DARK_TEXT_LINES.has(d.line) ? ' dark-text' : '';
-      // Abweichung vom Fahrplan wie in der BVG-App: rot +5 (zu spät), grün −2 (zu früh)
-      const showDelay = !d.cancelled && d.delayMin != null && d.delayMin !== 0;
-      const delayHtml = !showDelay ? ''
-        : d.delayMin > 0 ? `<span class="delay late">+${d.delayMin}</span>`
-        : `<span class="delay early">−${-d.delayMin}</span>`;
       const blink = !d.cancelled && d.when - now < 60000 ? 'blink' : '';
       return `<div class="row${d.cancelled ? ' cancelled' : ''}" role="listitem">
         <span class="c-line"><span class="badge p-${esc(d.product)}${darkText}" style="--lc:${col}">${esc(d.line)}</span></span>
         <span class="c-dest"><span class="dn">${esc(d.dest)}</span>${d.accessible ? ACC_ICON : ''}</span>
         <span class="c-occ ${d.occupancy ? 'occ-' + d.occupancy : ''}">${d.occupancy ? OCC_ICONS[d.occupancy] : ''}</span>
         <span class="c-plat">${esc(d.platform)}</span>
-        <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${delayHtml}</span>
+        <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${d.cancelled ? '' : delayHtml(d.delayMin)}</span>
       </div>`;
     }).join('');
   }
@@ -714,6 +833,27 @@ function updateBoard(b) {
   const warnings = [...new Set(r.deps
     .filter(d => b.products.includes(d.product) && (!b.lines.length || b.lines.includes(d.line)))
     .flatMap(d => d.warnings))];
+  setTicker(el, r, warnings);
+}
+
+function updateConnBoard(b, el, r, now, rowsEl) {
+  const { html: rows, n } = connRowsHtml(b, now);
+  if (r.lastUpdate) el.classList.toggle('no-occ', !r.conns.some(j => j.occupancy));
+  let html = rows;
+  if (!n) {
+    const text = !b.station ? 'Start-Haltestelle in den Einstellungen ⚙ wählen'
+      : !b.direction ? 'Ziel in den Einstellungen ⚙ wählen'
+      : r.loading && !r.lastUpdate ? 'Suche Verbindungen …'
+      : r.error && !r.lastUpdate ? r.error
+      : 'Keine Verbindung gefunden';
+    html = `<div class="row msg"><span>${esc(text)}</span></div>`;
+  }
+  for (let i = Math.max(1, n); i < b.count; i++) html += '<div class="row" aria-hidden="true"><span>&nbsp;</span></div>';
+  rowsEl.innerHTML = html;
+  setTicker(el, r, [...new Set(r.conns.flatMap(j => j.warnings))]);
+}
+
+function setTicker(el, r, warnings) {
   const sig = warnings.join('§');
   if (sig !== r.ticker) { // Laufschrift nicht bei jedem Sekundentakt neu starten
     r.ticker = sig;
@@ -886,27 +1026,34 @@ function renderSettings() {
           <button type="button" class="ghost danger" data-act="del">Entfernen</button>
         </div>
       </div>
+      <div class="field full">
+        <span class="lbl">Art der Tafel</span>
+        <div class="seg" data-f="type">
+          <button type="button" data-act="type-dep">Abfahrten</button>
+          <button type="button" data-act="type-conn">Verbindung</button>
+        </div>
+      </div>
       <div class="field">
-        <label>Abfahrt von</label>
+        <label data-f="fromLbl">Abfahrt von</label>
         <div class="inrow">
           <div class="ac"><input class="txt" data-f="station" type="search" autocomplete="off" placeholder="Haltestelle suchen …" /><div class="sugg" hidden></div></div>
           <button type="button" class="iconbtn" data-act="nearby" title="Haltestellen in der Nähe" aria-label="Haltestellen in der Nähe">📍</button>
         </div>
       </div>
       <div class="field">
-        <label>Richtung</label>
+        <label data-f="dirLbl">Richtung</label>
         <div class="inrow">
           <div class="ac"><input class="txt" data-f="direction" type="search" autocomplete="off" placeholder="Alle Richtungen" /><div class="sugg" hidden></div></div>
           <button type="button" class="iconbtn" data-act="clearDir" title="Richtung entfernen" aria-label="Richtung entfernen">✕</button>
         </div>
-        <div class="hint">Nur Fahrten, die über diese Haltestelle fahren.</div>
+        <div class="hint" data-f="dirHint">Nur Fahrten, die über diese Haltestelle fahren.</div>
       </div>
       <div class="field full">
         <span class="lbl">Verkehrsmittel</span>
         <div class="chips" data-f="products"></div>
         <div class="hint">Antippen = nur dieses Verkehrsmittel, weitere dazu antippen. „Alle“ setzt zurück.</div>
       </div>
-      <div class="field full">
+      <div class="field full only-dep">
         <span class="lbl">Linien</span>
         <div class="chips" data-f="lines"></div>
         <div class="hint">Keine Auswahl = alle Linien. Angeboten werden die Linien, die hier in den nächsten ${DURATION_MIN} Minuten fahren.</div>
@@ -916,7 +1063,7 @@ function renderSettings() {
         <div class="hint" style="margin:0" data-f="check"></div>
       </div>
       <div class="field">
-        <span class="lbl">Anzahl Abfahrten</span>
+        <span class="lbl" data-f="countLbl">Anzahl Abfahrten</span>
         <div class="stepper">
           <button type="button" data-act="minus" aria-label="Weniger">−</button>
           <span class="val" data-f="count"></span>
@@ -943,6 +1090,15 @@ function setupCard(b) {
   const stationIn = q('[data-f="station"]'), dirIn = q('[data-f="direction"]');
 
   const syncInputs = () => {
+    const conn = b.type === 'conn';
+    card.classList.toggle('card-conn', conn);
+    q('[data-f="type"] [data-act="type-dep"]').setAttribute('aria-pressed', String(!conn));
+    q('[data-f="type"] [data-act="type-conn"]').setAttribute('aria-pressed', String(conn));
+    q('[data-f="fromLbl"]').textContent = conn ? 'Von' : 'Abfahrt von';
+    q('[data-f="dirLbl"]').textContent = conn ? 'Nach' : 'Richtung';
+    q('[data-f="dirHint"]').textContent = conn ? 'Ziel der Verbindung – Umstiege sucht die App selbst.' : 'Nur Fahrten, die über diese Haltestelle fahren.';
+    q('[data-f="countLbl"]').textContent = conn ? 'Anzahl Verbindungen' : 'Anzahl Abfahrten';
+    dirIn.placeholder = conn ? 'Ziel-Haltestelle suchen …' : 'Alle Richtungen';
     stationIn.value = b.station ? b.station.name : '';
     dirIn.value = b.direction ? b.direction.name : '';
     dirIn.disabled = !b.station;
@@ -977,7 +1133,10 @@ function setupCard(b) {
     const btn = e.target.closest('[data-act]');
     if (btn) {
       const act = btn.dataset.act, i = state.boards.indexOf(b);
-      if (act === 'clearDir') { b.direction = null; syncInputs(); reloadBoard(b); }
+      if (act === 'type-dep' || act === 'type-conn') {
+        b.type = act === 'type-conn' ? 'conn' : 'dep';
+        syncInputs(); renderDataCheck(b); reloadBoard(b);
+      } else if (act === 'clearDir') { b.direction = null; syncInputs(); reloadBoard(b); }
       else if (act === 'minus' || act === 'plus') { b.count = clampCount(b.count + (act === 'plus' ? 1 : -1)); syncInputs(); saveStore(); }
       else if (act === 'up' || act === 'down') {
         const j = i + (act === 'up' ? -1 : 1);
@@ -1043,7 +1202,17 @@ function renderDataCheck(b) {
   if (!el) return;
   const r = boardRt(b);
   if (!b.station) { el.textContent = 'Erst eine Haltestelle wählen.'; return; }
+  if (b.type === 'conn' && !b.direction) { el.textContent = 'Erst ein Ziel wählen.'; return; }
   if (!r.lastUpdate) { el.textContent = r.error ? 'Keine Verbindung – noch keine Daten.' : 'Noch keine Daten …'; return; }
+  if (b.type === 'conn') {
+    const c = r.conns;
+    el.innerHTML = `Letzte Abfrage ${hhmm(r.lastUpdate)} über ${DEMO ? 'DEMO' : APIS[apiIdx].name}: <b>${c.length}</b> Verbindungen, davon `
+      + `<b>${c.filter(j => j.delayMin != null).length}</b> mit Echtzeit, `
+      + `<b>${c.filter(j => j.lines.length > 1).length}</b> mit Umstieg, `
+      + `<b>${c.filter(j => j.occupancy).length}</b> mit Auslastung, `
+      + `<b>${c.filter(j => j.warnings.length).length}</b> mit Störungsmeldung. Aktualisierung jede Minute.`;
+    return;
+  }
   const deps = r.deps;
   const count = {};
   for (const d of deps) for (const h of new Set(d.hints || [])) count[h] = (count[h] || 0) + 1;
@@ -1267,12 +1436,36 @@ function demoDepartures(stationId, directionId) {
         when: new Date((m + delayMin) * 60000 + 20000),
         delayMin,
         cancelled: line === 'M4' && seed % 2 === 1,
-        occupancy: ['low', 'med', 'high', 'low', null, 'med'][(m + dest.length) % 6],
+        // wie in den echten Daten: für die S-Bahn liefert die BVG keine Auslastung
+        occupancy: product === 'suburban' ? null : ['low', 'med', 'high', 'low', null, 'med'][(m + dest.length) % 6],
         warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
         accessible: product === 'bus' || product === 'tram' || line === 'U8' || (product === 'suburban' && m % 2 === 0),
         hints: ['FB: Fahrradmitnahme möglich'],
       });
     }
+  }
+  return out;
+}
+
+// Demo: Verbindungen Residenzstr. → Brandenburger Tor (U8 bis Gesundbrunnen, dann S25/S26)
+function demoJourneys(fromId, toId) {
+  const now = Date.now(), start = Math.floor(now / 60000), out = [];
+  for (let m = start - 1; m < start + 90; m++) {
+    if (m % 5 !== 1) continue;
+    const seed = (m * 7) % 11;
+    const u8Delay = seed === 2 ? 2 : seed === 6 ? -1 : 0;
+    // Anschluss an die nächste S25/S26 (alle 10 Minuten, je 10 min versetzt) nach mindestens 4 Minuten Umstieg
+    const arriveGesund = m + 6 + u8Delay;
+    let s = arriveGesund + 4; while (s % 10 !== 3) s++;
+    const sLine = (s / 10) % 2 < 1 ? 'S25' : 'S26';
+    const sDelay = seed === 4 ? 3 : 0;
+    out.push({
+      id: 'dj' + m, when: new Date((m + u8Delay) * 60000), delayMin: u8Delay,
+      arr: new Date((s + 9 + sDelay) * 60000), arrDelayMin: sDelay,
+      lines: [{ name: 'U8', product: 'subway', delayMin: u8Delay }, { name: sLine, product: 'suburban', delayMin: sDelay }],
+      cancelled: seed === 9, occupancy: ['low', 'med', 'high', 'med', null][Math.floor(m / 5) % 5],
+      warnings: seed === 4 ? ['S25: Verspätungen wegen einer Signalstörung'] : [],
+    });
   }
   return out;
 }
