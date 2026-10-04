@@ -53,6 +53,8 @@
   [data-theme="ledbold"] .clock .time { font-family: VT323, monospace; font-weight: 400; font-size: 1.3em; color: #ffae00; text-shadow: 0 0 6px rgba(255,160,0,.45); }
   .head-btns { display: flex; gap: 8px; flex: none; transition: opacity .4s; }
   body.idle .head-btns { opacity: .12; }
+  .updbtn { flex: none; margin-left: auto; border: 0; border-radius: 12px; padding: 10px 16px; background: var(--accent); color: #111; font-weight: 700; font-size: 15px; }
+  .updbtn[hidden] { display: none; }
   .hbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--panel-border); background: var(--panel-bg); font-size: 20px; display: grid; place-items: center; }
 
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
@@ -235,6 +237,7 @@
 <div class="dash" id="dash">
   <header class="dash-head">
     <div class="clock"><span class="time" id="clockTime">--:--</span><span class="date" id="clockDate"></span></div>
+    <button type="button" class="updbtn" id="updBtn" hidden>Neue Version laden</button>
     <div class="head-btns">
       <button type="button" class="hbtn" id="fsBtn" title="Vollbild" aria-label="Vollbild">⛶</button>
       <button type="button" class="hbtn" id="openSettings" title="Einstellungen" aria-label="Einstellungen">⚙</button>
@@ -287,9 +290,11 @@
         </div>
       </div>
       <div class="hint">
-        Läuft automatisch weiter: Aktualisierung alle 30 s, bei Verbindungsabbruch erneuter Versuch, tägliches Neuladen um 4 Uhr
-        (holt auch neue App-Versionen), leichtes Verschieben der Anzeige gegen Einbrennen. Bedienknöpfe blenden sich nach ein paar Sekunden aus –
-        einmal tippen holt sie zurück.
+        Läuft automatisch weiter: Aktualisierung alle 30 s, bei Verbindungsabbruch erneuter Versuch, neue App-Versionen werden
+        nach spätestens ca. 15 Minuten übernommen, tägliches Neuladen um 4 Uhr, leichtes Verschieben der Anzeige gegen Einbrennen.
+        Bedienknöpfe blenden sich nach ein paar Sekunden aus – einmal tippen holt sie zurück.<br><br>
+        Tipp: Über „Zum Startbildschirm hinzufügen“ installiert, startet die App ohne Browserleiste und bleibt auch nach dem
+        Neuladen so. Der ⛶-Knopf im normalen Browser endet dagegen bei jedem Neuladen.
       </div>
     </div>
 
@@ -759,11 +764,43 @@ function scheduleDailyReload() {
   const now = new Date(), next = new Date(now);
   next.setHours(4, 0, 0, 0);
   if (next <= now) next.setDate(next.getDate() + 1);
-  setTimeout(function attempt() {
-    if (!$('settings').hidden) { setTimeout(attempt, 10 * 60000); return; } // nicht während der Bearbeitung
-    location.reload();
-  }, next - now);
+  setTimeout(() => safeReload(false), next - now);
 }
+
+// Neu laden, ohne den Nutzer zu stören:
+// - nicht während der Bearbeitung der Einstellungen (dann nach dem Schließen)
+// - nicht im Vollbild über den ⛶-Knopf: das würde der Browser beim Neuladen beenden und die
+//   Browserleiste wäre wieder da. Dann nur einen Knopf anbieten (bei einer neuen Version).
+let reloadPending = false;
+function inApiFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function safeReload(isUpdate) {
+  if (!$('settings').hidden) { reloadPending = true; return; }
+  if (inApiFullscreen()) { if (isUpdate) $('updBtn').hidden = false; return; }
+  location.reload();
+}
+$('updBtn').addEventListener('click', () => location.reload());
+
+// Neue App-Version erkennen: alle 5 Minuten die eigene Seite vom Server holen und mit dem
+// Stand beim Start vergleichen. GitHub Pages hält Dateien bis zu 10 Minuten im Zwischenspeicher,
+// eine hochgeladene Version erscheint also nach spätestens etwa 15 Minuten.
+const UPDATE_CHECK_MS = 5 * 60000;
+let pageSig = null;
+async function checkForUpdate() {
+  if (location.protocol === 'file:' || document.hidden) return;
+  try {
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set('_', Date.now());
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return;
+    const text = await res.text();
+    let h = 0;
+    for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+    const sig = text.length + ':' + h;
+    if (!pageSig) pageSig = sig;
+    else if (sig !== pageSig) safeReload(true);
+  } catch (e) { /* offline – beim nächsten Mal wieder */ }
+}
+setInterval(checkForUpdate, UPDATE_CHECK_MS);
 
 // Vollbild
 const fsSupported = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
@@ -790,6 +827,7 @@ function closeSettings() {
   $('settings').hidden = true;
   renderGrid();
   wakeUi();
+  if (reloadPending) { reloadPending = false; safeReload(true); }
 }
 
 function renderSettings() {
@@ -1194,6 +1232,7 @@ tick();
 setInterval(tick, 1000);
 refreshAll();
 scheduleDailyReload();
+checkForUpdate();
 wakeUi();
 if (!state.boards.length) { state.boards.push(newBoard()); renderGrid(); openSettings(); }
 </script>
