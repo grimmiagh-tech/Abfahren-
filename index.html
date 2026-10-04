@@ -146,9 +146,11 @@
   .row.cancelled .c-time { grid-column: 3 / 6; }
   .row.msg { grid-column: 1 / -1; }
   /* Verbindungstafel: Ab | Linien mit Umstiegen | An | Dauer */
-  .board-wrap.conn .b-cols, .board-wrap.conn .row { grid-template-columns: 4.8em minmax(0, 1fr) var(--occ-w) 5em 4.2em; }
+  .board-wrap.conn .b-cols, .board-wrap.conn .row { grid-template-columns: 6.6em minmax(0, 1fr) var(--occ-w) 5.6em 6.2em; }
+  /* kleine Beschriftung direkt an den Zeiten: „los in 5 min“, „an 21:02“, „gesamt 27 min“ */
+  .jl { font-size: .55em; opacity: .75; margin-right: .35em; }
   /* Schmale Verbindungstafel: Dauer weglassen, damit die Linien (U8 › S25) Platz haben */
-  .board-wrap.conn.narrow .b-cols, .board-wrap.conn.narrow .row { grid-template-columns: 4.8em minmax(0, 1fr) var(--occ-w) 5em; }
+  .board-wrap.conn.narrow .b-cols, .board-wrap.conn.narrow .row { grid-template-columns: 6.6em minmax(0, 1fr) var(--occ-w) 5.6em; }
   .j-occ { display: flex; justify-content: center; gap: .1em; padding-left: .6em; }
   .b-cols .j-occ { display: block; text-align: center; }
   .no-occ .j-occ { display: none !important; }
@@ -159,6 +161,9 @@
   .j-arr, .j-dur, .b-cols .j-arr, .b-cols .j-dur { text-align: right; }
   .j-lines { display: flex; align-items: center; gap: .3em; min-width: 0; overflow: hidden; white-space: nowrap; }
   .j-sep { opacity: .6; }
+  .j-walk { display: inline-flex; align-items: center; gap: .15em; white-space: nowrap; font-size: .85em; }
+  .j-walk .walk { width: .9em; height: .9em; fill: currentColor; }
+  .j-walk-x { font-size: .75em; opacity: .85; }
   .j-leg { display: inline-flex; align-items: baseline; white-space: nowrap; }
   .j-leg .delay { margin-left: .15em; }
   .j-plat { margin-left: .35em; font-size: .7em; opacity: .8; }
@@ -568,11 +573,21 @@ function toStop(l) {
   return { id: l.id, name: shortName(l.name), products: l.products || {}, distance: l.distance };
 }
 
-async function searchStops(q, signal) {
-  if (DEMO) return demoSearch(q);
-  const list = await api('/locations', { query: q, results: 8, stops: true, addresses: false, poi: false, fuzzy: true }, signal);
-  return list.filter(l => l.type === 'stop' || l.type === 'station').map(toStop);
+async function searchStops(q, signal, withAddresses = false) {
+  if (DEMO) return demoSearch(q, withAddresses);
+  const list = await api('/locations', { query: q, results: 8, stops: true, addresses: withAddresses, poi: false, fuzzy: true }, signal);
+  return list.map(l => l.type === 'stop' || l.type === 'station' ? toStop(l)
+    : withAddresses && l.address && l.latitude != null ? toAddress(l) : null).filter(Boolean);
 }
+
+// Startadresse (nur für Verbindungstafeln). Wird nur im Browser dieses Geräts gespeichert,
+// auf der Tafel steht stattdessen „Zu Hause“.
+function toAddress(l) {
+  return { id: 'addr:' + l.latitude + ',' + l.longitude, name: l.address, address: true, latitude: l.latitude, longitude: l.longitude, isAddress: true };
+}
+const HOME_LABEL = 'Zu Hause';
+const DEST_LABEL = 'Ziel';
+const placeLabel = (p, dest) => p?.address ? (dest ? DEST_LABEL : HOME_LABEL) : p?.name || '';
 
 async function nearbyStops(lat, lon) {
   if (DEMO) return demoNearby();
@@ -695,30 +710,58 @@ async function fetchDepartures(b, signal) {
 async function fetchJourneys(b, signal) {
   if (DEMO) return demoJourneys(b.station.id, b.direction.id);
   const params = {
-    from: b.station.id, to: b.direction.id, results: Math.max(b.count + 2, 4),
+    results: Math.max(b.count + 2, 4),
     stopovers: false, remarks: true, language: 'de',
   };
+  if (b.station.address) {
+    params['from.address'] = b.station.name;
+    params['from.latitude'] = b.station.latitude;
+    params['from.longitude'] = b.station.longitude;
+  } else params.from = b.station.id;
+  if (b.direction.address) {
+    params['to.address'] = b.direction.name;
+    params['to.latitude'] = b.direction.latitude;
+    params['to.longitude'] = b.direction.longitude;
+  } else params.to = b.direction.id;
   for (const k of ALL_PRODUCTS) params[k] = b.products.includes(k);
   const res = await api('/journeys', params, signal);
   return (res.journeys || []).map(parseJourney).filter(Boolean);
 }
 
 // Eine Verbindung auf das Nötige verdichten: erste Abfahrt, letzte Ankunft, Linien der Fahrten (ohne Fußwege)
+// Gehzeit der Fußwege direkt vor einer Fahrt (zwischen zwei Fahrten = Umsteigeweg)
+function walkBeforeLeg(all, leg) {
+  let ms = 0;
+  for (let i = all.indexOf(leg) - 1; i >= 0 && all[i].walking; i--) {
+    ms += new Date(all[i].arrival || all[i].plannedArrival) - new Date(all[i].departure || all[i].plannedDeparture);
+  }
+  return ms > 0 ? Math.max(1, Math.round(ms / 60000)) : 0;
+}
+
 function parseJourney(j) {
-  const legs = (j.legs || []).filter(l => !l.walking && l.line);
+  const all = j.legs || [];
+  const legs = all.filter(l => !l.walking && l.line);
   if (!legs.length) return null;
   const first = legs[0], last = legs[legs.length - 1];
   const min = sec => sec != null ? Math.round(sec / 60) : null;
+  // Fußweg vor der ersten Fahrt: in der Kette anzeigen, „Ab“ = Zeitpunkt zum Losgehen
+  const lead = all[0]?.walking ? all[0] : null;
+  const tail = all.length > 1 && all[all.length - 1]?.walking ? all[all.length - 1] : null;
+  const walkTailMin = tail ? Math.max(1, Math.round((new Date(tail.arrival || tail.plannedArrival) - new Date(tail.departure || tail.plannedDeparture)) / 60000)) : 0;
+  const walkMin = lead ? Math.max(1, Math.round((new Date(lead.arrival || lead.plannedArrival) - new Date(lead.departure || lead.plannedDeparture)) / 60000)) : 0;
   return {
     id: (j.refreshToken || '') + '|' + first.plannedDeparture,
-    when: new Date(first.departure || first.plannedDeparture),
+    walkMin, walkTailMin,
+    when: new Date(lead ? (lead.departure || lead.plannedDeparture) : (first.departure || first.plannedDeparture)),
     delayMin: min(first.departureDelay),
-    arr: new Date(last.arrival || last.plannedArrival),
+    // Ankunft am Zielort – mit Fußweg am Ende
+    arr: new Date(tail ? (tail.arrival || tail.plannedArrival) : (last.arrival || last.plannedArrival)),
     arrDelayMin: min(last.arrivalDelay),
     // je Teilstrecke die Abweichung bei der Abfahrt – steht in der Kette direkt hinter der Linie
     lines: legs.map(l => ({
       name: l.line.name, product: l.line.product, delayMin: min(l.departureDelay),
       platform: cleanPlatform(l.departurePlatform || l.plannedDeparturePlatform),
+      walkBefore: legs.indexOf(l) > 0 ? walkBeforeLeg(all, l) : 0, // Fußweg beim Umsteigen
     })),
     cancelled: legs.some(l => l.cancelled),
     // höchste Auslastung aller Teilstrecken – darauf muss man sich einstellen
@@ -804,6 +847,8 @@ function durationLabel(ms) {
   return m < 60 ? m + ' min' : Math.floor(m / 60) + ':' + pad(m % 60) + ' h';
 }
 
+const WALK_ICON = '<svg class="walk" viewBox="0 0 24 24" aria-label="zu Fuß"><circle cx="13" cy="3.5" r="2.3"/><path d="M9.6 8.2 13 6.6c.9-.4 1.9 0 2.3.8l1.4 3.1 2.6 1.1-.8 1.8-3.3-1.4-.8-1.7-1 4.3 2.6 2.5V23h-2v-5.1l-2.6-2.4-1 4.3-3.7 3.4-1.4-1.5 3.3-3 2-8.6-1.4.7v3.2h-2V9.4z"/></svg>';
+
 function connRowsHtml(b, now) {
   const r = boardRt(b);
   const list = r.conns.filter(j => j.when - now > -30000).slice(0, b.count);
@@ -811,11 +856,11 @@ function connRowsHtml(b, now) {
   const html = list.map(j => {
     const blink = !j.cancelled && j.when - now < 60000 ? 'blink' : '';
     return `<div class="row${j.cancelled ? ' cancelled' : ''}" role="listitem">
-      <span class="j-dep"><span class="${blink}">${esc(timeLabel(j, now))}</span></span>
-      <span class="j-lines">${j.lines.map(l => `<span class="j-leg">${badgeHtml(l.name, l.product)}${j.cancelled ? '' : delayHtml(l.delayMin)}${l.platform ? `<span class="j-plat">Gl.&nbsp;${esc(l.platform)}</span>` : ''}</span>`).join('<span class="j-sep">›</span>')}</span>
+      <span class="j-dep">${j.cancelled ? '' : `<span class="jl">${j.walkMin ? 'los' : 'ab'}</span>`}<span class="${blink}">${esc(timeLabel(j, now).replace(/^(\d)/, 'in $1'))}</span></span>
+      <span class="j-lines">${j.walkMin ? `<span class="j-walk">${WALK_ICON}${j.walkMin}&nbsp;min</span><span class="j-sep">›</span>` : ''}${j.lines.map(l => `${l.walkBefore ? `<span class="j-walk j-walk-x">${WALK_ICON}${l.walkBefore}</span><span class="j-sep">›</span>` : ''}<span class="j-leg">${badgeHtml(l.name, l.product)}${j.cancelled ? '' : delayHtml(l.delayMin)}${l.platform ? `<span class="j-plat">Gl.&nbsp;${esc(l.platform)}</span>` : ''}</span>`).join('<span class="j-sep">›</span>')}${j.walkTailMin ? `<span class="j-sep">›</span><span class="j-walk">${WALK_ICON}${j.walkTailMin}&nbsp;min</span>` : ''}</span>
       <span class="j-occ">${!j.cancelled && j.occupancy ? OCC_ICONS[j.occupancy] : ''}</span>
-      <span class="j-arr">${j.cancelled ? '' : esc(hhmm(j.arr)) + delayHtml(j.arrDelayMin)}</span>
-      <span class="j-dur">${j.cancelled ? '' : esc(durationLabel(j.arr - j.when))}</span>
+      <span class="j-arr">${j.cancelled ? '' : '<span class="jl">an</span>' + esc(hhmm(j.arr)) + delayHtml(j.arrDelayMin)}</span>
+      <span class="j-dur">${j.cancelled ? '' : '<span class="jl">gesamt</span>' + esc(durationLabel(j.arr - j.when))}</span>
     </div>`;
   }).join('');
   return { html, n: list.length };
@@ -832,8 +877,8 @@ function timeLabel(d, now) {
 // Zusatz in der Titelzeile: bei eigenem Namen die Haltestelle, dazu die Richtung
 function boardDirection(b) {
   const parts = [];
-  if (b.title && b.station) parts.push(b.station.name);
-  if (b.direction) parts.push('→ ' + b.direction.name);
+  if (b.title && b.station) parts.push(placeLabel(b.station));
+  if (b.direction) parts.push('→ ' + placeLabel(b.direction, true));
   return parts.join(' ');
 }
 
@@ -844,7 +889,7 @@ function renderGrid() {
       <section class="board" aria-label="Abfahrtstafel">
         <div class="b-head"><span class="b-title"></span><span class="b-dir"></span><span class="b-status"></span></div>
         ${b.type === 'conn'
-          ? '<div class="b-cols" aria-hidden="true"><span class="j-dep"><i>Ab</i></span><span class="j-lines"><i>Verbindung</i></span><span class="j-occ c"><i>Ausl.</i></span><span class="j-arr r"><i>An</i></span><span class="j-dur r"><i>Dauer</i></span></div>'
+          ? '<div class="b-cols" aria-hidden="true"><span class="j-dep"><i>Los / ab</i></span><span class="j-lines"><i>Verbindung</i></span><span class="j-occ c"><i>Ausl.</i></span><span class="j-arr r"><i>Ankunft</i></span><span class="j-dur r"><i>Dauer</i></span></div>'
           : `<div class="b-cols" aria-hidden="true"><span class="c-line"><i>Linie</i></span><span class="c-dest"><i>Ziel</i></span><span class="c-occ c"><i>Ausl.</i></span><span class="c-plat r"><i>Gl.</i></span><span class="c-time r"><i>Abfahrt</i></span></div>`}
         <div class="rows" role="list"></div>
         <div class="ticker"></div>
@@ -896,7 +941,7 @@ function fitToScreen() {
   // Verbindungstafeln, die weniger als ~25 Zeichen breit sind, verzichten auf die Spalte „Dauer“
   document.querySelectorAll('.board-wrap.conn').forEach(w => {
     const bd = w.querySelector('.board');
-    w.classList.toggle('narrow', bd.clientWidth / parseFloat(getComputedStyle(bd).fontSize) < 25);
+    w.classList.toggle('narrow', bd.clientWidth / parseFloat(getComputedStyle(bd).fontSize) < 34);
   });
 }
 // Bleibt unten Platz, weil eine schmale Tafel die Schrift begrenzt, bekommen die Tafeln über die
@@ -928,7 +973,7 @@ function updateBoard(b) {
   if (!el) return;
   const r = boardRt(b);
   const now = new Date();
-  el.querySelector('.b-title').textContent = b.title || (b.station ? b.station.name : 'Neue Tafel');
+  el.querySelector('.b-title').textContent = b.title || (b.station ? placeLabel(b.station) : 'Neue Tafel');
   el.querySelector('.b-dir').textContent = b.station ? boardDirection(b) : '';
   // Der Stand steht einmal oben neben dem Datum; hier nur, wenn mit dieser Tafel etwas nicht stimmt
   el.querySelector('.b-status').textContent = r.error && r.lastUpdate ? `offline · ${hhmm(r.lastUpdate)}`
@@ -1241,11 +1286,12 @@ function setupCard(b) {
     card.classList.toggle('card-conn', conn);
     q('[data-f="type"] [data-act="type-dep"]').setAttribute('aria-pressed', String(!conn));
     q('[data-f="type"] [data-act="type-conn"]').setAttribute('aria-pressed', String(conn));
-    q('[data-f="fromLbl"]').textContent = conn ? 'Von' : 'Abfahrt von';
+    q('[data-f="fromLbl"]').textContent = conn ? 'Von (Haltestelle oder Adresse)' : 'Abfahrt von';
+    stationIn.placeholder = conn ? 'Haltestelle oder eigene Adresse …' : 'Haltestelle suchen …';
     q('[data-f="dirLbl"]').textContent = conn ? 'Nach' : 'Richtung';
-    q('[data-f="dirHint"]').textContent = conn ? 'Ziel der Verbindung – Umstiege sucht die App selbst.' : 'Nur Fahrten, die über diese Haltestelle fahren.';
+    q('[data-f="dirHint"]').textContent = conn ? 'Haltestelle oder Adresse (🏠). Bei einer Adresse zeigt die Tafel „Ziel“ und den Fußweg am Ende.' : 'Nur Fahrten, die über diese Haltestelle fahren.';
     q('[data-f="countLbl"]').textContent = conn ? 'Anzahl Verbindungen' : 'Anzahl Abfahrten';
-    dirIn.placeholder = conn ? 'Ziel-Haltestelle suchen …' : 'Alle Richtungen';
+    dirIn.placeholder = conn ? 'Haltestelle oder Ziel-Adresse …' : 'Alle Richtungen';
     stationIn.value = b.station ? b.station.name : '';
     dirIn.value = b.direction ? b.direction.name : '';
     dirIn.disabled = !b.station;
@@ -1259,18 +1305,18 @@ function setupCard(b) {
   renderDataCheck(b);
 
   const stationAc = autocomplete(stationIn, syncInputs, s => {
-    if (b.station?.id !== s.id) { b.direction = null; b.lines = []; }
+    if (b.station?.id !== s.id && !(b.type === 'conn')) { b.direction = null; b.lines = []; }
     b.station = s;
     syncInputs();
     renderLineChips(b);
     reloadBoard(b, { resetLines: true });
-  });
+  }, () => b.type === 'conn');
   autocomplete(dirIn, syncInputs, d => {
     if (d.id === b.station?.id) { syncInputs(); return; }
     b.direction = d;
     syncInputs();
     reloadBoard(b);
-  });
+  }, () => b.type === 'conn');
 
   q('[data-f="title"]').addEventListener('input', e => { b.title = e.target.value.trim(); saveStore(); });
   q('[data-f="wide"]').checked = !!b.wide;
@@ -1282,6 +1328,8 @@ function setupCard(b) {
       const act = btn.dataset.act, i = state.boards.indexOf(b);
       if (act === 'type-dep' || act === 'type-conn') {
         b.type = act === 'type-conn' ? 'conn' : 'dep';
+        if (b.type === 'dep' && b.station?.address) b.station = null; // Abfahrten gibt es nur an Haltestellen
+        if (b.type === 'dep' && b.direction?.address) b.direction = null;
         syncInputs(); renderDataCheck(b); reloadBoard(b);
       } else if (act === 'clearDir') { b.direction = null; syncInputs(); reloadBoard(b); }
       else if (act === 'minus' || act === 'plus') { b.count = clampCount(b.count + (act === 'plus' ? 1 : -1)); syncInputs(); saveStore(); }
@@ -1413,7 +1461,7 @@ function findNearby(btn, input, ac) {
 }
 
 // ============ Autovervollständigung ============
-function autocomplete(input, reset, onPick) {
+function autocomplete(input, reset, onPick, allowAddresses = () => false) {
   const list = input.parentElement.querySelector('.sugg');
   let items = [], active = -1, ctrl = null;
 
@@ -1422,7 +1470,7 @@ function autocomplete(input, reset, onPick) {
     active = -1;
     if (!entries.length && !note) { list.hidden = true; return; }
     list.innerHTML = (note ? `<div class="note">${esc(note)}</div>` : '') + entries.map((s, i) =>
-      `<button type="button" data-i="${i}"><span>${esc(s.name)}</span><span class="meta">${s.distance != null ? `${s.distance} m ` : ''}${productMinis(s.products)}</span></button>`
+      `<button type="button" data-i="${i}"><span>${s.isAddress ? '🏠 ' : ''}${esc(s.name)}</span><span class="meta">${s.distance != null ? `${s.distance} m ` : ''}${productMinis(s.products)}</span></button>`
     ).join('');
     list.hidden = false;
   }
@@ -1431,8 +1479,8 @@ function autocomplete(input, reset, onPick) {
     if (ctrl) ctrl.abort();
     const c = ctrl = new AbortController();
     try {
-      const res = await searchStops(q, c.signal);
-      if (input.value.trim() === q) show(res, res.length ? '' : 'Keine Haltestelle gefunden');
+      const res = await searchStops(q, c.signal, allowAddresses());
+      if (input.value.trim() === q) show(res, res.length ? '' : 'Nichts gefunden');
     } catch (e) {
       if (!c.signal.aborted) show([], 'Suche fehlgeschlagen – keine Verbindung');
     }
@@ -1467,7 +1515,7 @@ function autocomplete(input, reset, onPick) {
   function pick(s) {
     list.hidden = true;
     input.blur();
-    onPick({ id: s.id, name: s.name });
+    onPick(s.isAddress ? { id: s.id, name: s.name, address: true, latitude: s.latitude, longitude: s.longitude } : { id: s.id, name: s.name });
   }
   return { show };
 }
@@ -1545,9 +1593,11 @@ const DEMO_WARNINGS = {
   S9: 'S9: Bauarbeiten – zwischen Schöneweide und Flughafen BER Ersatzverkehr mit Bussen',
 };
 
-function demoSearch(q) {
+function demoSearch(q, withAddresses) {
   const n = q.toLowerCase();
-  return DEMO_STOPS.filter(s => s.name.toLowerCase().includes(n)).map(s => ({ ...s, distance: undefined }));
+  const stops = DEMO_STOPS.filter(s => s.name.toLowerCase().includes(n)).map(s => ({ ...s, distance: undefined }));
+  return withAddresses && /str|weg|platz|\d/.test(n)
+    ? [toAddress({ address: 'Musterstraße 1, 13407 Berlin', latitude: 52.57, longitude: 13.35 }), ...stops] : stops;
 }
 function demoNearby() { return DEMO_STOPS.filter(s => s.distance != null); }
 
@@ -1612,10 +1662,12 @@ function demoJourneys(fromId, toId) {
     let s = arriveGesund + 4; while (s % 10 !== 3) s++;
     const sLine = (s / 10) % 2 < 1 ? 'S25' : 'S26';
     const sDelay = seed === 4 ? 3 : 0;
+    const walk = String(fromId).startsWith('addr:') ? 6 : 0; // von einer Adresse: erst zur Haltestelle laufen
+    const walkTail = String(toId).startsWith('addr:') ? 8 : 0; // zu einer Adresse: am Ende laufen
     out.push({
-      id: 'dj' + m, when: new Date((m + u8Delay) * 60000), delayMin: u8Delay,
-      arr: new Date((s + 9 + sDelay) * 60000), arrDelayMin: sDelay,
-      lines: [{ name: 'U8', product: 'subway', delayMin: u8Delay, platform: '2' }, { name: sLine, product: 'suburban', delayMin: sDelay, platform: '1' }],
+      id: 'dj' + m, when: new Date((m + u8Delay - walk) * 60000), delayMin: u8Delay, walkMin: walk,
+      arr: new Date((s + 9 + sDelay + walkTail) * 60000), arrDelayMin: sDelay, walkTailMin: walkTail,
+      lines: [{ name: 'U8', product: 'subway', delayMin: u8Delay, platform: '2' }, { name: sLine, product: 'suburban', delayMin: sDelay, platform: '1', walkBefore: 3 }],
       cancelled: seed === 9, occupancy: ['low', 'med', 'high', 'med', null][Math.floor(m / 5) % 5],
       warnings: seed === 4 ? ['S25: Verspätungen wegen einer Signalstörung'] : [],
     });
