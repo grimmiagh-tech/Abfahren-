@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="led">
+<html lang="de" data-theme="ledbold">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="Abfahrten" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Doto:wght@800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@800;900&family=VT323&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
   :root {
     --page-bg: #0a0a0b;
@@ -44,11 +44,13 @@
   body.night .dash { filter: brightness(.35); }
   body.idle { cursor: none; }
 
-  .dash-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-  .clock { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-  .clock .time { font-size: clamp(30px, 6vw, 56px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
-  .clock .date { font-size: clamp(13px, 1.8vw, 18px); color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; min-height: 44px; }
+  /* Uhr ungefähr so groß wie eine Abfahrtszeile – die Abfahrten sind das Wichtigste */
+  .clock { display: flex; align-items: baseline; gap: .6em; min-width: 0; font-size: calc(var(--fs, 20px) * 1.1); }
+  .clock .time { font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .clock .date { font-size: .62em; color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   [data-theme="led"] .clock .time { font-family: Doto, monospace; font-weight: 900; color: #ffae00; text-shadow: 0 0 8px rgba(255,160,0,.5); }
+  [data-theme="ledbold"] .clock .time { font-family: VT323, monospace; font-weight: 400; font-size: 1.3em; color: #ffae00; text-shadow: 0 0 6px rgba(255,160,0,.45); }
   .head-btns { display: flex; gap: 8px; flex: none; transition: opacity .4s; }
   body.idle .head-btns { opacity: .12; }
   .hbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--panel-border); background: var(--panel-bg); font-size: 20px; display: grid; place-items: center; }
@@ -58,15 +60,17 @@
   .grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   @media (max-width: 700px) { .grid[data-cols] { grid-template-columns: minmax(0, 1fr); } }
+  .board-wrap.wide { grid-column: 1 / -1; }
 
   /* ============ Abfahrtstafel (gemeinsame Struktur) ============ */
   .board-wrap { container-type: inline-size; min-width: 0; }
   .board { position: relative; overflow: hidden; border-radius: 14px; }
-  .b-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-  .b-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .b-sub { display: flex; justify-content: space-between; gap: 1em; white-space: nowrap; }
-  .b-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .b-status { flex: none; }
+  /* Titelzeile: Haltestelle → Richtung, rechts nur bei Problemen ein Status */
+  .b-head { display: flex; align-items: baseline; gap: .5em; white-space: nowrap; min-width: 0; }
+  .b-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .b-dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: .62em; }
+  .b-status { flex: none; font-size: .55em; }
+  .ticker:empty { display: none; }
   .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 2em 4.6em; column-gap: .6em; align-items: center; }
   .b-cols > span { font-size: .5em; }
   .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
@@ -90,9 +94,9 @@
   }
 
   /* ============ Design 1: LED-Anzeiger (BVG-Stil, bernsteinfarben) ============ */
-  [data-theme="led"] .board {
+  [data-theme^="led"] .board {
     --led: #ffae00;
-    --led-dim: #a86f00;
+    --led-dim: #d99100;
     --led-off: #2a1c00;
     background: #050505;
     border: 8px solid #1b1b1d;
@@ -102,28 +106,34 @@
     font-weight: 900;
     color: var(--led);
     text-shadow: 0 0 6px rgba(255,160,0,.55);
-    font-size: calc(clamp(14px, 5cqi, 30px) * var(--fit, 1));
+    font-size: var(--fs, 20px);
     letter-spacing: .02em;
   }
-  [data-theme="led"] .board::after {
+  [data-theme^="led"] .board::after {
     /* feines Punktraster wie bei echten LED-Matrixanzeigen */
     content: ""; position: absolute; inset: 0; pointer-events: none;
-    background-image: radial-gradient(circle at center, transparent 55%, rgba(0,0,0,.35) 56%);
+    background-image: radial-gradient(circle at center, transparent 55%, rgba(0,0,0,.18) 56%);
     background-size: 3px 3px;
   }
-  [data-theme="led"] .b-head { font-size: 1.1em; padding-bottom: .2em; }
-  [data-theme="led"] .b-sub { font-size: .6em; color: var(--led-dim); text-shadow: none; padding-bottom: .4em; }
-  [data-theme="led"] .b-cols { color: var(--led-dim); text-shadow: none; border-bottom: 2px dotted var(--led-off); padding-bottom: .15em; margin-bottom: .25em; }
-  [data-theme="led"] .row { padding: .14em 0; }
-  [data-theme="led"] .badge { font-weight: 900; }
-  [data-theme="led"] .delay { font-size: .65em; margin-left: .2em; vertical-align: .3em; }
-  [data-theme="led"] .delay.late { color: #ff5a46; text-shadow: 0 0 5px rgba(255,80,60,.55); }
-  [data-theme="led"] .delay.early { color: #4fe07a; text-shadow: 0 0 5px rgba(70,220,120,.5); }
-  [data-theme="led"] .c-plat { color: var(--led-dim); }
-  [data-theme="led"] .row.cancelled .c-dest { color: var(--led-dim); }
-  [data-theme="led"] .row.cancelled .c-dest .dn { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
-  [data-theme="led"] .ticker { font-size: .6em; border-top: 2px dotted var(--led-off); margin-top: .4em; padding-top: .4em; }
-  [data-theme="led"] .msg { color: var(--led-dim); }
+  [data-theme^="led"] .b-head { font-size: 1.05em; padding-bottom: .2em; }
+  [data-theme^="led"] .b-dir, [data-theme^="led"] .b-status { color: var(--led-dim); text-shadow: none; }
+  [data-theme^="led"] .b-cols { color: var(--led-dim); text-shadow: none; border-bottom: 2px dotted var(--led-off); padding-bottom: .15em; margin-bottom: .25em; }
+  [data-theme^="led"] .row { padding: .14em 0; }
+  [data-theme^="led"] .badge { font-weight: 900; }
+  [data-theme^="led"] .delay { font-size: .65em; margin-left: .2em; vertical-align: .3em; }
+  [data-theme^="led"] .delay.late { color: #ff5a46; text-shadow: 0 0 5px rgba(255,80,60,.55); }
+  [data-theme^="led"] .delay.early { color: #4fe07a; text-shadow: 0 0 5px rgba(70,220,120,.5); }
+  [data-theme^="led"] .c-plat { color: var(--led-dim); }
+  [data-theme^="led"] .row.cancelled .c-dest { color: var(--led-dim); }
+  [data-theme^="led"] .row.cancelled .c-dest .dn { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
+  [data-theme^="led"] .ticker { font-size: .6em; border-top: 2px dotted var(--led-off); margin-top: .4em; padding-top: .4em; }
+  [data-theme^="led"] .msg { color: var(--led-dim); }
+
+  /* ============ Design 1b: LED kräftig (volle Pixel, besser lesbar aus der Entfernung) ============ */
+  [data-theme="ledbold"] .board { font-family: VT323, "Courier New", monospace; font-weight: 400; font-size: calc(var(--fs, 20px) * 1.3); letter-spacing: .03em; text-shadow: 0 0 4px rgba(255,160,0,.45); }
+  [data-theme="ledbold"] .board::after { display: none; }
+  [data-theme="ledbold"] .b-cols > span { font-size: .6em; }
+  [data-theme="ledbold"] .b-dir, [data-theme="ledbold"] .ticker { font-size: .7em; }
 
   /* ============ Design 2: Modern (dunkelblaue Bahnsteiganzeige mit Linienfarben) ============ */
   [data-theme="modern"] .board {
@@ -132,11 +142,11 @@
     box-shadow: 0 18px 40px rgba(0,0,0,.5);
     padding: .75em .85em .5em;
     color: #fff;
-    font-size: calc(clamp(14px, 4.6cqi, 26px) * var(--fit, 1));
+    font-size: var(--fs, 20px);
   }
-  [data-theme="modern"] .b-head { font-weight: 800; font-size: 1.1em; padding-bottom: .1em; }
-  [data-theme="modern"] .b-sub { font-size: .62em; color: #9fb6da; padding-bottom: .6em; font-weight: 500; }
-  [data-theme="modern"] .b-cols { color: #7f98c0; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; padding-bottom: .2em; border-bottom: 1px solid #23406b; }
+  [data-theme="modern"] .b-head { font-weight: 800; font-size: 1.05em; padding-bottom: .35em; }
+  [data-theme="modern"] .b-dir, [data-theme="modern"] .b-status { color: #bcd0ee; font-weight: 500; }
+  [data-theme="modern"] .b-cols { color: #a5bbdc; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; padding-bottom: .2em; border-bottom: 1px solid #23406b; }
   [data-theme="modern"] .row { padding: .36em 0; border-bottom: 1px solid #1a3359; font-weight: 600; min-height: 2.05em; }
   [data-theme="modern"] .row:last-child { border-bottom: 0; }
   [data-theme="modern"] .badge {
@@ -145,7 +155,7 @@
   }
   [data-theme="modern"] .badge.p-suburban, [data-theme="modern"] .badge.p-bus, [data-theme="modern"] .badge.p-regional, [data-theme="modern"] .badge.p-express { border-radius: 999px; }
   [data-theme="modern"] .badge.dark-text { color: #111; }
-  [data-theme="modern"] .c-plat { color: #9fb6da; font-weight: 500; }
+  [data-theme="modern"] .c-plat { color: #c4d6f2; font-weight: 500; }
   [data-theme="modern"] .c-time { font-weight: 700; }
   [data-theme="modern"] .delay { font-size: .6em; font-weight: 700; margin-left: .3em; }
   [data-theme="modern"] .delay.late { color: #ff8a80; }
@@ -203,6 +213,7 @@
   .seg { display: inline-flex; flex-wrap: wrap; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 10px; padding: 3px; gap: 2px; }
   .seg button { border: 0; background: transparent; padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--muted); }
   .seg button[aria-pressed="true"] { background: #2a2a2f; color: var(--text); }
+  .field > label.switch { display: flex; text-transform: none; letter-spacing: 0; font-size: inherit; color: var(--text); margin-bottom: 0; }
   .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
   .switch input { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 999px; background: #333338; position: relative; flex: none; cursor: pointer; transition: background .2s; margin: 0; }
   .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .2s; }
@@ -245,7 +256,8 @@
       <div class="field">
         <span class="lbl">Design</span>
         <div class="seg" id="themeSeg">
-          <button type="button" data-v="led">LED</button>
+          <button type="button" data-v="led">LED Punkte</button>
+          <button type="button" data-v="ledbold">LED kräftig</button>
           <button type="button" data-v="modern">Modern</button>
         </div>
       </div>
@@ -335,14 +347,14 @@ function newBoard(init = {}) {
   return {
     id: Math.random().toString(36).slice(2, 10),
     title: '', station: null, direction: null,
-    products: [...ALL_PRODUCTS], lines: [], count: 5,
+    products: [...ALL_PRODUCTS], lines: [], count: 5, wide: false,
     ...init,
   };
 }
 
 const state = {
   boards: [],
-  theme: 'led',
+  theme: 'ledbold',
   cols: 'auto',
   wake: true,
   night: { on: false, from: 23, to: 6 },
@@ -365,7 +377,7 @@ function loadStore() {
   } else if (s.station) {
     state.boards = [newBoard({ station: s.station, direction: s.direction || null, products: s.products || ALL_PRODUCTS })];
   }
-  if (s.theme === 'led' || s.theme === 'modern') state.theme = s.theme;
+  if (['led', 'ledbold', 'modern'].includes(s.theme)) state.theme = s.theme;
   if (['auto', '1', '2', '3'].includes(s.cols)) state.cols = s.cols;
   if (typeof s.wake === 'boolean') state.wake = s.wake;
   if (s.night && typeof s.night === 'object') state.night = { ...state.night, ...s.night };
@@ -553,24 +565,20 @@ function timeLabel(d, now) {
   return hhmm(d.when);
 }
 
-function boardDescription(b) {
+// Zusatz in der Titelzeile: bei eigenem Namen die Haltestelle, dazu die Richtung
+function boardDirection(b) {
   const parts = [];
   if (b.title && b.station) parts.push(b.station.name);
-  if (b.lines.length) parts.push(b.lines.join(' · '));
-  else if (b.products.length < ALL_PRODUCTS.length) parts.push(PRODUCTS.filter(p => b.products.includes(p.key)).map(p => p.label).join(' · '));
-  parts.push(b.direction ? 'Richtung ' + b.direction.name : 'Alle Richtungen');
-  return parts.join(' – ');
+  if (b.direction) parts.push('→ ' + b.direction.name);
+  return parts.join(' ');
 }
 
 function renderGrid() {
   const grid = $('grid');
-  grid.dataset.cols = state.cols;
-  if (state.cols === 'auto') delete grid.dataset.cols;
   grid.innerHTML = state.boards.map(b => `
-    <div class="board-wrap" data-board="${b.id}">
+    <div class="board-wrap${b.wide ? ' wide' : ''}" data-board="${b.id}">
       <section class="board" aria-label="Abfahrtstafel">
-        <div class="b-head"><div class="b-title"></div></div>
-        <div class="b-sub"><span class="b-desc"></span><span class="b-status"></span></div>
+        <div class="b-head"><span class="b-title"></span><span class="b-dir"></span><span class="b-status"></span></div>
         <div class="b-cols" aria-hidden="true"><span>Linie</span><span>Ziel</span><span class="r">Gl.</span><span class="r">Abfahrt</span></div>
         <div class="rows" role="list"></div>
         <div class="ticker"></div>
@@ -580,22 +588,34 @@ function renderGrid() {
   fitToScreen();
 }
 
-// Tafeln so verkleinern, dass alles ohne Scrollen auf den Bildschirm passt (Wandtablet).
-// Alle Maße sind in em angegeben, die Höhe skaliert daher etwa linear mit --fit.
-const MIN_FIT = 0.55;
+// Schriftgröße (--fs) so groß wie möglich wählen, sodass alles ohne Scrollen auf den Bildschirm passt
+// (Wandtablet). Bei „Auto“ werden 1–3 Spalten durchprobiert und die Anordnung mit der größten Schrift genommen.
+const FS_MIN = 11, FS_MAX = 72;
+const EM_PER_BOARD = 23; // Breite einer Tafel in em: Linie + Gleis + Abfahrt + Abstände + Platz fürs Ziel
+
 function fitToScreen() {
-  const grid = $('grid');
-  grid.style.setProperty('--fit', 1);
-  const avail = window.innerHeight - grid.getBoundingClientRect().top - 16;
-  const need = grid.scrollHeight;
-  if (need <= avail || !state.boards.length) return;
-  let fit = Math.max(MIN_FIT, avail / need);
-  grid.style.setProperty('--fit', fit.toFixed(3));
-  // Rahmen/Abstände skalieren nicht mit – bei Bedarf in kleinen Schritten nachregeln
-  for (let i = 0; i < 6 && grid.scrollHeight > avail && fit > MIN_FIT; i++) {
-    fit = Math.max(MIN_FIT, fit - 0.03);
-    grid.style.setProperty('--fit', fit.toFixed(3));
+  const root = document.documentElement, grid = $('grid');
+  if (!state.boards.length || !$('settings').hidden) return;
+  const fits = fs => { root.style.setProperty('--fs', fs + 'px'); return root.scrollHeight <= window.innerHeight + 1; };
+
+  function bestFor(cols) {
+    if (cols) grid.dataset.cols = cols; else delete grid.dataset.cols;
+    const n = cols || 1;
+    const gap = 16, colW = (grid.clientWidth - gap * (n - 1)) / n;
+    let lo = FS_MIN, hi = Math.max(FS_MIN, Math.min(FS_MAX, (colW - 20) / EM_PER_BOARD));
+    if (!fits(lo)) return lo;
+    for (let i = 0; i < 9; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+    return lo;
   }
+
+  let best = { cols: +state.cols || 1, fs: FS_MIN };
+  const candidates = state.cols === 'auto' ? [1, 2, 3].filter(c => c <= state.boards.length) : [+state.cols];
+  for (const c of candidates) {
+    const fs = bestFor(c);
+    if (fs > best.fs + 0.5) best = { cols: c, fs };
+  }
+  grid.dataset.cols = best.cols;
+  root.style.setProperty('--fs', Math.floor(best.fs * 4) / 4 + 'px');
 }
 window.addEventListener('resize', debounce(fitToScreen, 200));
 document.fonts?.ready.then(fitToScreen);
@@ -615,13 +635,10 @@ function updateBoard(b) {
   const r = boardRt(b);
   const now = new Date();
   el.querySelector('.b-title').textContent = b.title || (b.station ? b.station.name : 'Neue Tafel');
-  el.querySelector('.b-desc').textContent = b.station ? boardDescription(b) : '';
-
-  let status = '';
-  if (r.error && r.lastUpdate) status = `offline · Stand ${hhmm(r.lastUpdate)}`;
-  else if (r.lastUpdate) status = (DEMO ? 'DEMO · ' : APIS[apiIdx].name + ' · ') + `Stand ${hhmm(r.lastUpdate)}`;
-  else if (r.loading) status = 'verbinde …';
-  el.querySelector('.b-status').textContent = status;
+  el.querySelector('.b-dir').textContent = b.station ? boardDirection(b) : '';
+  // Der Stand steht einmal oben neben dem Datum; hier nur, wenn mit dieser Tafel etwas nicht stimmt
+  el.querySelector('.b-status').textContent = r.error && r.lastUpdate ? `offline · ${hhmm(r.lastUpdate)}`
+    : r.loading && !r.lastUpdate ? 'verbinde …' : '';
 
   const rowsEl = el.querySelector('.rows');
   const visible = b.station ? visibleDepartures(b, now) : [];
@@ -663,26 +680,40 @@ function updateBoard(b) {
   if (sig !== r.ticker) { // Laufschrift nicht bei jedem Sekundentakt neu starten
     r.ticker = sig;
     const t = el.querySelector('.ticker');
-    if (!warnings.length) t.innerHTML = '&nbsp;'; // Zeile bleibt reserviert, damit die Höhe gleich bleibt
+    const hadTicker = !!t.textContent;
+    if (!warnings.length) t.textContent = ''; // Zeile nur bei Meldungen – spart Höhe für die Abfahrten
     else {
       const text = '+++ ' + warnings.join(' +++ ') + ' +++';
       t.innerHTML = `<span class="run" style="--dur:${Math.max(12, text.length * 0.22)}s">${esc(text)}</span>`;
     }
+    if (hadTicker !== !!warnings.length) refit(); // Höhe hat sich geändert
   }
+}
+
+const refit = debounce(() => fitToScreen(), 300);
+
+// Gemeinsamer Datenstand aller Tafeln für die Kopfzeile
+function dataStatus() {
+  const rts = state.boards.filter(b => b.station).map(boardRt);
+  const times = rts.map(r => r.lastUpdate).filter(Boolean);
+  if (!times.length) return '';
+  const oldest = new Date(Math.min(...times));
+  const source = DEMO ? 'DEMO' : APIS[apiIdx].name;
+  return ` · ${source} · Stand ${hhmm(oldest)}` + (rts.some(r => r.error) ? ' · teilweise offline' : '');
 }
 
 function tick() {
   const now = new Date();
-  const colon = state.theme === 'led' && now.getSeconds() % 2 ? ' ' : ':';
+  const colon = state.theme.startsWith('led') && now.getSeconds() % 2 ? ' ' : ':';
   $('clockTime').textContent = pad(now.getHours()) + colon + pad(now.getMinutes());
-  $('clockDate').textContent = now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('clockDate').textContent = now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }) + dataStatus();
   document.body.classList.toggle('night', isNight(now));
   state.boards.forEach(updateBoard);
 }
 
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
-  document.querySelector('meta[name="theme-color"]').content = state.theme === 'led' ? '#0a0a0a' : '#0b1a33';
+  document.querySelector('meta[name="theme-color"]').content = state.theme.startsWith('led') ? '#0a0a0a' : '#0b1a33';
 }
 
 // ============ Dauerbetrieb ============
@@ -821,6 +852,10 @@ function renderSettings() {
         <label>Name der Tafel (optional)</label>
         <input class="txt" data-f="title" type="text" maxlength="40" placeholder="z. B. Zur Arbeit" />
       </div>
+      <div class="field full">
+        <label class="switch"><span class="t">Über die volle Breite</span><input type="checkbox" data-f="wide" /></label>
+        <div class="hint">Die Tafel bekommt eine eigene Zeile – z. B. für die wichtigste Tafel ganz oben.</div>
+      </div>
     </div>`).join('');
   state.boards.forEach(setupCard);
 }
@@ -859,6 +894,8 @@ function setupCard(b) {
   });
 
   q('[data-f="title"]').addEventListener('input', e => { b.title = e.target.value.trim(); saveStore(); });
+  q('[data-f="wide"]').checked = !!b.wide;
+  q('[data-f="wide"]').addEventListener('change', e => { b.wide = e.target.checked; saveStore(); });
 
   card.addEventListener('click', e => {
     const btn = e.target.closest('[data-act]');
@@ -1048,6 +1085,11 @@ $('nightTo').addEventListener('change', e => { state.night.to = +e.target.value;
 
 // ============ Demo-Modus (?demo) – Beispieldaten für die Vorschau ============
 const DEMO_STOPS = [
+  { id: 'd-resi', name: 'U Residenzstr.', products: { subway: 1, bus: 1 } },
+  { id: 'd-altrei', name: 'S Alt-Reinickendorf', products: { suburban: 1, bus: 1 } },
+  { id: 'd-weisse', name: 'Weiße Stadt', products: { bus: 1 } },
+  { id: 'd-bbt', name: 'S+U Brandenburger Tor', products: { suburban: 1, subway: 1, bus: 1 } },
+  { id: 'd-tuerk', name: 'Türkenstr.', products: { bus: 1 } },
   { id: 'd-alex', name: 'S+U Alexanderplatz', products: { suburban: 1, subway: 1, tram: 1, bus: 1, regional: 1 }, distance: 180 },
   { id: 'd-fried', name: 'S+U Friedrichstr.', products: { suburban: 1, subway: 1, tram: 1, bus: 1, regional: 1 }, distance: 1450 },
   { id: 'd-ost', name: 'S Ostkreuz', products: { suburban: 1, tram: 1, bus: 1, regional: 1 } },
@@ -1090,12 +1132,32 @@ function demoSearch(q) {
 }
 function demoNearby() { return DEMO_STOPS.filter(s => s.distance != null); }
 
+// Eigene Beispiel-Linien für einzelne Haltestellen (für realistische Vorschauen)
+const DEMO_STATION_LINES = {
+  'd-resi': [
+    ['U8', 'subway', 'S+U Wittenau', '1', 5, 1, ['d-witt']],
+    ['U8', 'subway', 'S+U Hermannstr.', '2', 5, 3, ['d-herm', 'd-alex']],
+  ],
+  'd-altrei': [
+    ['S25', 'suburban', 'S Teltow Stadt', '2', 20, 4, ['d-bbt']],
+    ['S26', 'suburban', 'S Teltow Stadt', '2', 20, 14, ['d-bbt']],
+    ['S25', 'suburban', 'S Hennigsdorf', '1', 20, 9, []],
+    ['S26', 'suburban', 'S Waidmannslust', '1', 20, 19, []],
+  ],
+  'd-weisse': [
+    ['120', 'bus', 'S+U Hauptbahnhof', '', 10, 2, ['d-tuerk']],
+    ['122', 'bus', 'U Osloer Str.', '', 20, 7, ['d-tuerk']],
+    ['120', 'bus', 'S+U Wittenau', '', 10, 6, []],
+    ['122', 'bus', 'S Waidmannslust', '', 20, 12, []],
+  ],
+};
+
 function demoDepartures(stationId, directionId) {
   const now = Date.now();
   const startMin = Math.floor(now / 60000);
   const shift = [...stationId].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
   const out = [];
-  for (const [line, product, dest, platform, every, offset, via] of DEMO_LINES) {
+  for (const [line, product, dest, platform, every, offset, via] of (DEMO_STATION_LINES[stationId] || DEMO_LINES)) {
     if (directionId && !via.includes(directionId)) continue;
     for (let m = startMin - 1; m < startMin + DURATION_MIN; m++) {
       if ((m - offset - shift) % every !== 0) continue;
