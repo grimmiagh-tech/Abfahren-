@@ -136,6 +136,7 @@
   .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
   .c-dest { display: flex; align-items: center; gap: .3em; min-width: 0; white-space: nowrap; }
   .c-dest .dn { overflow: hidden; text-overflow: ellipsis; }
+  .sev { flex: none; font-size: .62em; padding: .05em .35em; border: 1.5px solid currentColor; border-radius: .3em; opacity: .9; }
   .acc { flex: none; width: .85em; height: .85em; fill: currentColor; opacity: .9; }
   [data-theme="modern"] .acc { fill: #7fb4ff; }
   .c-plat { white-space: nowrap; overflow: hidden; }
@@ -610,33 +611,84 @@ const OCC_ICONS = Object.fromEntries([['low', 1], ['med', 2], ['high', 3]].map((
 // An Bahnhöfen mit S- und U-Bahn liefert die BVG z. B. „2 (U5)“ – die Linie steht schon vorne,
 // also nur „2“ anzeigen.
 function cleanPlatform(p) {
-  return String(p || '').replace(/\s*\([^)]*\)/g, '').trim();
+  // „2 (U5)“ → „2“; Bussteige „Pos. 1“ → „1“
+  return String(p || '').replace(/\s*\([^)]*\)/g, '').replace(/^pos\.?\s*/i, '').trim();
 }
 
-async function fetchDepartures(b, signal) {
-  if (DEMO) return demoDepartures(b.station.id, b.direction?.id);
-  const params = {
-    duration: DURATION_MIN, direction: b.direction?.id || null,
-    remarks: true, linesOfStops: false, language: 'de',
-  };
-  // Verkehrsmittel schon auf dem Server filtern – spart Datenvolumen bei großen Bahnhöfen
-  for (const k of ALL_PRODUCTS) params[k] = b.products.includes(k);
-  const res = await api(`/stops/${encodeURIComponent(b.station.id)}/departures`, params, signal);
-  const raw = Array.isArray(res) ? res : (res.departures || []);
-  return raw.map(d => ({
+// Schienenersatzverkehr: Die BVG liefert Ersatzbusse als Bus mit dem Namen der ersetzten Linie
+// (z. B. „U8“), Linien-ID endet auf „-ev1“, Richtung „Ersatzverkehr Richtung …“.
+const RAIL = ['subway', 'suburban', 'tram'];
+function sevBase(d) {
+  if (d.line?.product !== 'bus') return null;
+  const id = String(d.line?.id || ''), dir = String(d.direction || '');
+  if (!/-ev\d*$/i.test(id) && !/^ersatzverkehr/i.test(dir)) return null;
+  if (/u-bahn/i.test(id) || /^U\d/.test(d.line.name)) return 'subway';
+  if (/s-bahn/i.test(id) || /^S\d/.test(d.line.name)) return 'suburban';
+  if (/tram/i.test(id) || /^M\d|^\d{2}$/.test(d.line.name)) return 'tram';
+  return 'bus';
+}
+// „Ersatzverkehr Richtung S+U Hermannstr.“ → „S+U Hermannstr.“
+const sevDest = dir => shortName(String(dir).replace(/^ersatzverkehr\s*(richtung)?\s*/i, ''));
+
+// Störungstext für die Laufschrift: der ausführliche Text, wenn die Überschrift nur ein Schlagwort ist
+function warningText(r) {
+  const summary = stripHtml(r.summary || ''), text = stripHtml(r.text || '').replace(/\[MEHR[^\]]*\]/gi, '').trim();
+  return text && text.length > summary.length ? text : summary;
+}
+
+function toDeparture(d) {
+  const sev = sevBase(d);
+  return {
     id: (d.tripId || '') + '|' + (d.plannedWhen || ''),
     line: d.line?.name || '?',
-    product: d.line?.product || '',
-    dest: shortName(d.direction || d.destination?.name || ''),
+    // Ersatzbusse zählen zum Verkehrsmittel der ersetzten Linie, damit sie auf deren Tafel erscheinen
+    product: sev && sev !== 'bus' ? sev : (d.line?.product || ''),
+    sev: !!sev,
+    dest: sev ? sevDest(d.direction || d.destination?.name || '') : shortName(d.direction || d.destination?.name || ''),
     platform: cleanPlatform(d.platform || d.plannedPlatform),
     when: new Date(d.when || d.plannedWhen),
     delayMin: d.delay != null ? Math.round(d.delay / 60) : null,
     cancelled: !!d.cancelled,
     occupancy: parseOccupancy(d),
-    warnings: (d.remarks || []).filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean),
+    warnings: (d.remarks || []).filter(r => r.type === 'warning').map(warningText).filter(Boolean),
     accessible: (d.remarks || []).some(isAccessibleHint),
+    fahrtNr: d.line?.fahrtNr || null,
     hints: (d.remarks || []).filter(r => r.type === 'hint').map(r => `${r.code || '–'}: ${stripHtml(r.text || r.summary || '')}`),
-  }));
+  };
+}
+
+async function fetchDepartures(b, signal) {
+  if (DEMO) return demoDepartures(b.station.id, b.direction?.id);
+  const url = `/stops/${encodeURIComponent(b.station.id)}/departures`;
+  const base = { duration: DURATION_MIN, remarks: true, linesOfStops: false, language: 'de' };
+  const params = { ...base, direction: b.direction?.id || null };
+  // Verkehrsmittel schon auf dem Server filtern – Busse aber immer mit abfragen, wenn die Tafel
+  // Schienenverkehr zeigt, sonst fehlen Ersatzbusse
+  const wantsRail = b.products.some(p => RAIL.includes(p));
+  for (const k of ALL_PRODUCTS) params[k] = b.products.includes(k) || (k === 'bus' && wantsRail);
+  const listOf = res => Array.isArray(res) ? res : (res.departures || []);
+  const raw = listOf(await api(url, params, signal));
+  // Mit Richtung: Ersatzbusse enden oft vor dem Richtungsziel und fallen durch den Richtungsfilter.
+  // Daher zusätzlich alle Busse holen und die Ersatzbusse übernehmen, deren Richtungstext das Ziel nennt.
+  if (b.direction && wantsRail) {
+    try {
+      const busOnly = { ...base };
+      for (const k of ALL_PRODUCTS) busOnly[k] = k === 'bus';
+      const target = shortName(b.direction.name).toLowerCase().replace(/^s\+u |^[su] /, '');
+      const seen = new Set(raw.map(d => d.tripId + d.plannedWhen));
+      for (const d of listOf(await api(url, busOnly, signal))) {
+        if (sevBase(d) && String(d.direction || '').toLowerCase().includes(target) && !seen.has(d.tripId + d.plannedWhen)) raw.push(d);
+      }
+    } catch (e) { if (signal?.aborted) throw e; /* Ersatzbusse sind Zusatz – Fehler hier nicht melden */ }
+  }
+  // Doppelte Ersatzbus-Fahrten (gleiche Zeit, gleiche Richtung) zusammenfassen
+  const out = [], keys = new Set();
+  for (const d of raw.map(toDeparture)) {
+    // Ersatzbusse kommen oft doppelt (eine Minute versetzt, gleiche Fahrtnummer)
+    const k = d.sev ? `sev|${d.line}|${d.dest}|${d.fahrtNr || Math.round(d.when / 120000)}` : d.id;
+    if (!keys.has(k)) { keys.add(k); out.push(d); }
+  }
+  return out;
 }
 
 // ============ Verbindungen (Tafel-Art „Verbindung“) ============
@@ -696,7 +748,7 @@ async function loadBoard(b) {
       if (ctrl.signal.aborted) return;
       deps.sort((x, y) => x.when - y.when);
       r.deps = deps;
-      for (const d of deps) r.seenLines.set(d.line, d.product);
+      for (const d of deps) if (!d.sev) r.seenLines.set(d.line, d.product);
     }
     r.error = null;
     if (!r.lastUpdate) refit(); // erste Daten dieser Tafel: Schrift an die echten Texte anpassen
@@ -909,7 +961,7 @@ function updateBoard(b) {
       const blink = !d.cancelled && d.when - now < 60000 ? 'blink' : '';
       return `<div class="row${d.cancelled ? ' cancelled' : ''}" role="listitem">
         <span class="c-line"><span class="badge p-${esc(d.product)}${darkText}" style="--lc:${col}">${esc(d.line)}</span></span>
-        <span class="c-dest"><span class="dn">${esc(d.dest)}</span>${d.accessible ? ACC_ICON : ''}</span>
+        <span class="c-dest">${d.sev ? '<span class="sev">Ersatzbus</span>' : ''}<span class="dn">${esc(d.dest)}</span>${d.accessible ? ACC_ICON : ''}</span>
         <span class="c-occ ${d.occupancy ? 'occ-' + d.occupancy : ''}">${d.occupancy ? OCC_ICONS[d.occupancy] : ''}</span>
         <span class="c-plat">${esc(d.platform)}</span>
         <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${d.cancelled ? '' : delayHtml(d.delayMin)}</span>
@@ -1503,7 +1555,8 @@ function demoNearby() { return DEMO_STOPS.filter(s => s.distance != null); }
 const DEMO_STATION_LINES = {
   'd-resi': [
     ['U8', 'subway', 'S+U Wittenau', '1', 5, 1, ['d-witt']],
-    ['U8', 'subway', 'S+U Hermannstr.', '2', 5, 3, ['d-herm', 'd-alex']],
+    ['U8', 'subway', 'S+U Hermannstr.', '2', 10, 3, ['d-herm', 'd-alex']],
+    ['U8', 'subway', 'S+U Hermannstr.', '', 10, 8, ['d-herm'], true], // Ersatzbus (SEV)
   ],
   'd-altrei': [
     ['S25', 'suburban', 'S Teltow Stadt', '2', 20, 4, ['d-bbt']],
@@ -1524,7 +1577,7 @@ function demoDepartures(stationId, directionId) {
   const startMin = Math.floor(now / 60000);
   const shift = [...stationId].reduce((a, c) => a + c.charCodeAt(0), 0) % 4;
   const out = [];
-  for (const [line, product, dest, platform, every, offset, via] of (DEMO_STATION_LINES[stationId] || DEMO_LINES)) {
+  for (const [line, product, dest, platform, every, offset, via, sev] of (DEMO_STATION_LINES[stationId] || DEMO_LINES)) {
     if (directionId && !via.includes(directionId)) continue;
     for (let m = startMin - 1; m < startMin + DURATION_MIN; m++) {
       if ((m - offset - shift) % every !== 0) continue;
@@ -1532,13 +1585,13 @@ function demoDepartures(stationId, directionId) {
       const delayMin = seed === 2 ? 4 : seed === 6 ? 2 : seed === 9 ? 1 : seed === 4 ? -1 : seed === 7 ? -2 : 0;
       out.push({
         id: line + dest + m,
-        line, product, dest, platform,
+        line, product, dest, platform, sev: !!sev,
         when: new Date((m + delayMin) * 60000 + 20000),
         delayMin,
         cancelled: line === 'M4' && seed % 2 === 1,
         // wie in den echten Daten: für die S-Bahn liefert die BVG keine Auslastung
         occupancy: product === 'suburban' ? null : ['low', 'med', 'high', 'low', null, 'med'][(m + dest.length) % 6],
-        warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
+        warnings: sev ? ['U8: Ersatzverkehr mit Bussen zwischen Paracelsus-Bad und Gesundbrunnen wegen Bauarbeiten'] : DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
         accessible: false, // wie in den echten Daten: die BVG liefert die Barrierefreiheit derzeit nicht
         hints: ['FB: Fahrradmitnahme möglich'],
       });
