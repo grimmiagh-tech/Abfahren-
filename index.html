@@ -158,7 +158,7 @@
     font-weight: 900;
     color: var(--led);
     text-shadow: 0 0 6px rgba(255,160,0,.55);
-    font-size: var(--fs, 20px);
+    font-size: calc(var(--fs, 20px) * var(--bs, 1));
     letter-spacing: .02em;
   }
   [data-theme^="led"] .board::after {
@@ -184,7 +184,7 @@
   [data-theme^="led"] .msg { color: var(--led-dim); }
 
   /* ============ Design 1b: LED kräftig (volle Pixel, besser lesbar aus der Entfernung) ============ */
-  [data-theme="ledbold"] .board { font-family: VT323, "Courier New", monospace; font-weight: 400; font-size: calc(var(--fs, 20px) * 1.3); letter-spacing: .03em; text-shadow: 0 0 4px rgba(255,160,0,.45); }
+  [data-theme="ledbold"] .board { font-family: VT323, "Courier New", monospace; font-weight: 400; font-size: calc(var(--fs, 20px) * 1.3 * var(--bs, 1)); letter-spacing: .03em; text-shadow: 0 0 4px rgba(255,160,0,.45); }
   [data-theme="ledbold"] .board::after { display: none; }
   [data-theme="ledbold"] .b-cols i { font-size: .6em; }
   [data-theme="ledbold"] .b-dir, [data-theme="ledbold"] .ticker { font-size: .7em; }
@@ -196,7 +196,7 @@
     box-shadow: 0 18px 40px rgba(0,0,0,.5);
     padding: .75em .85em .5em;
     color: #fff;
-    font-size: var(--fs, 20px);
+    font-size: calc(var(--fs, 20px) * var(--bs, 1));
   }
   [data-theme="modern"] .b-head { font-weight: 800; font-size: 1.05em; padding-bottom: .35em; }
   [data-theme="modern"] .b-dir, [data-theme="modern"] .b-status { color: #bcd0ee; font-weight: 500; }
@@ -656,6 +656,7 @@ async function loadBoard(b) {
       for (const d of deps) r.seenLines.set(d.line, d.product);
     }
     r.error = null;
+    if (!r.lastUpdate) refit(); // erste Daten dieser Tafel: Schrift an die echten Texte anpassen
     r.lastUpdate = new Date();
   } catch (e) {
     if (ctrl.signal.aborted) return;
@@ -766,16 +767,26 @@ const EM_PER_BOARD = 25.5; // Breite einer Tafel in em: Linie + Gleis + Abfahrt 
 function fitToScreen() {
   const root = document.documentElement, grid = $('grid');
   if (!state.boards.length || !$('settings').hidden) return;
-  const fits = fs => { root.style.setProperty('--fs', fs + 'px'); return root.scrollHeight <= window.innerHeight + 1; };
+  // Vergrößerung der breiten Tafeln aus der letzten Berechnung zurücksetzen, sonst verfälscht sie die Messung
+  document.querySelectorAll('.board-wrap').forEach(w => w.style.removeProperty('--bs'));
+  const fitsHeight = fs => { root.style.setProperty('--fs', fs + 'px'); return root.scrollHeight <= window.innerHeight + 1; };
+  // Abgeschnittene Ziele, Linienketten oder Haltestellennamen? Dann ist die Schrift zu groß für die Breite.
+  const truncated = () => [...grid.querySelectorAll('.row .dn, .row .j-lines, .b-title')]
+    .some(e => e.scrollWidth > e.clientWidth + 1);
+  const fitsAll = fs => fitsHeight(fs) && !truncated();
+  const search = (lo, hi, ok) => {
+    for (let i = 0; i < 9; i++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+    return lo;
+  };
 
   function bestFor(cols) {
     if (cols) grid.dataset.cols = cols; else delete grid.dataset.cols;
-    const n = cols || 1;
-    const gap = state.compact ? 8 : 16, colW = (grid.clientWidth - gap * (n - 1)) / n;
-    let lo = FS_MIN, hi = Math.max(FS_MIN, Math.min(FS_MAX, (colW - 20) / EM_PER_BOARD));
-    if (!fits(lo)) return lo;
-    for (let i = 0; i < 9; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
-    return lo;
+    if (!fitsHeight(FS_MIN)) return FS_MIN;
+    // So groß wie möglich, solange alles passt und nichts abgeschnitten wird …
+    if (!truncated()) return search(FS_MIN, FS_MAX, fitsAll);
+    // … sind Texte schon bei kleinster Schrift zu lang, nur nach Höhe und grober Breite begrenzen
+    const n = cols || 1, gap = state.compact ? 8 : 16, colW = (grid.clientWidth - gap * (n - 1)) / n;
+    return search(FS_MIN, Math.max(FS_MIN, Math.min(FS_MAX, (colW - 20) / EM_PER_BOARD)), fitsHeight);
   }
 
   let best = { cols: +state.cols || 1, fs: FS_MIN };
@@ -786,11 +797,24 @@ function fitToScreen() {
   }
   grid.dataset.cols = best.cols;
   root.style.setProperty('--fs', Math.floor(best.fs * 4) / 4 + 'px');
+  growWideBoards(fitsHeight, truncated, Math.floor(best.fs * 4) / 4);
   // Verbindungstafeln, die weniger als ~25 Zeichen breit sind, verzichten auf die Spalte „Dauer“
   document.querySelectorAll('.board-wrap.conn').forEach(w => {
     const bd = w.querySelector('.board');
     w.classList.toggle('narrow', bd.clientWidth / parseFloat(getComputedStyle(bd).fontSize) < 25);
   });
+}
+// Bleibt unten Platz, weil eine schmale Tafel die Schrift begrenzt, bekommen die Tafeln über die
+// volle Breite (meist die wichtigsten) eine größere Schrift – bis der Bildschirm voll ist.
+function growWideBoards(fitsHeight, truncated, fs) {
+  const wide = [...document.querySelectorAll('.grid:not([data-cols="1"]) .board-wrap.wide')];
+  document.querySelectorAll('.board-wrap').forEach(w => w.style.removeProperty('--bs'));
+  if (!wide.length) return;
+  const ok = sc => { wide.forEach(w => w.style.setProperty('--bs', sc)); return fitsHeight(fs) && !truncated(); };
+  let lo = 1, hi = 1.8;
+  if (!ok(1.02)) { ok(1); return; }
+  for (let i = 0; i < 8; i++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+  ok(Math.floor(lo * 100) / 100);
 }
 window.addEventListener('resize', debounce(fitToScreen, 200));
 document.fonts?.ready.then(fitToScreen);
