@@ -71,6 +71,35 @@
   body.compact .dash-head { margin-bottom: 4px; min-height: 36px; }
   body.compact .hbtn { width: 36px; height: 36px; font-size: 17px; }
   body.compact .board { padding: .35em .5em .25em !important; border-width: 4px !important; border-radius: 10px; }
+
+  /* ============ Abgrenzung der Tafeln (für Ablesen aus der Entfernung) ============ */
+  .board { --px: .7em; --acc: #ffae00; }
+  [data-theme="modern"] .board { --px: .85em; --acc: #7fb4ff; }
+  body.compact .board { --px: .5em; }
+  body.sep-frame .grid, body.sep-bar .grid, body.sep-stripe .grid { gap: 12px; }
+  /* Rahmen: kräftiger, heller Rand um jede Tafel */
+  body.sep-frame .board { border: 3px solid var(--acc) !important; box-shadow: 0 0 10px color-mix(in srgb, var(--acc) 35%, transparent); }
+  /* Titelbalken: Kopfzeile als farbiges Band, wie bei echten Anzeigern */
+  body.sep-bar .board { padding-top: 0 !important; }
+  body.sep-bar .b-head { margin: 0 calc(var(--px) / -1.05) .3em; padding: .2em calc(var(--px) / 1.05);
+    background: var(--acc); color: #000 !important; text-shadow: none !important; }
+  body.sep-bar .b-head .b-dir, body.sep-bar .b-head .b-status { color: #000 !important; opacity: .75; }
+  /* Farbstreifen: links ein breiter Streifen in der Farbe der Linie */
+  body.sep-stripe .board { border-left: .45em solid var(--line-acc, var(--acc)) !important; }
+  /* Linienfarbe: ganze Tafel in der Farbe ihrer Linie umrandet */
+  body.sep-line .grid, body.sep-lift .grid { gap: 12px; }
+  body.sep-line .board { border: 4px solid var(--line-acc, var(--acc)) !important; box-shadow: 0 0 12px color-mix(in srgb, var(--line-acc, var(--acc)) 45%, transparent); }
+  /* Abgesetzt: hellerer Hintergrund, die schwarzen Tafeln heben sich davon ab; Linien als farbige Kästchen */
+  body.sep-lift { background: #34343a; }
+  body.sep-lift .board { border-color: #000 !important; box-shadow: 0 6px 18px rgba(0,0,0,.75) !important; }
+  body.sep-lift .clock .date { color: #c9c9d0; }
+  body.sep-lift .badge {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 2.4em; height: 1.3em; padding: 0 .3em;
+    font-size: .85em; color: #fff !important; text-shadow: none !important; background: var(--lc, #555); border-radius: .25em; line-height: 1;
+  }
+  body.sep-lift .badge.p-suburban, body.sep-lift .badge.p-bus, body.sep-lift .badge.p-regional, body.sep-lift .badge.p-express { border-radius: 999px; }
+  body.sep-lift .badge.dark-text { color: #111 !important; }
+  body.sep-lift .row.cancelled .badge { opacity: .5; }
   body.compact .b-head { padding-bottom: .15em !important; }
   @media (max-width: 700px) { .grid[data-cols] { grid-template-columns: minmax(0, 1fr); } }
   .board-wrap.wide { grid-column: 1 / -1; }
@@ -318,6 +347,18 @@
         </div>
       </div>
       <div class="field">
+        <span class="lbl">Abgrenzung der Tafeln</span>
+        <div class="seg" id="sepSeg">
+          <button type="button" data-v="none">Standard</button>
+          <button type="button" data-v="frame">Rahmen</button>
+          <button type="button" data-v="bar">Titelbalken</button>
+          <button type="button" data-v="stripe">Farbstreifen</button>
+          <button type="button" data-v="line">Linienfarbe</button>
+          <button type="button" data-v="lift">Abgesetzt</button>
+        </div>
+        <div class="hint">Hilft, die Tafeln aus der Entfernung auseinanderzuhalten.</div>
+      </div>
+      <div class="field">
         <label class="switch"><span class="t">Kompakt</span><input type="checkbox" id="compactChk" /></label>
         <div class="hint">Ohne Spaltenköpfe und mit schmaleren Rändern – mehr Platz für die Schrift auf kleinen Bildschirmen.</div>
       </div>
@@ -420,6 +461,7 @@ const state = {
   theme: 'ledbold',
   cols: 'auto',
   compact: false,
+  sep: 'none',      // Abgrenzung: none | frame | bar | stripe
   wake: true,
   night: { on: false, from: 23, to: 6 },
 };
@@ -444,6 +486,7 @@ function loadStore() {
   if (['led', 'ledbold', 'modern'].includes(s.theme)) state.theme = s.theme;
   if (['auto', '1', '2', '3'].includes(s.cols)) state.cols = s.cols;
   if (typeof s.compact === 'boolean') state.compact = s.compact;
+  if (['none', 'frame', 'bar', 'stripe', 'line', 'lift'].includes(s.sep)) state.sep = s.sep;
   if (typeof s.wake === 'boolean') state.wake = s.wake;
   if (s.night && typeof s.night === 'object') state.night = { ...state.night, ...s.night };
 }
@@ -451,7 +494,7 @@ function loadStore() {
 function saveStore() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      boards: state.boards, theme: state.theme, cols: state.cols, compact: state.compact, wake: state.wake, night: state.night,
+      boards: state.boards, theme: state.theme, cols: state.cols, compact: state.compact, sep: state.sep, wake: state.wake, night: state.night,
     }));
   } catch (e) { /* ignorieren */ }
 }
@@ -839,6 +882,9 @@ function updateBoard(b) {
   el.querySelector('.b-status').textContent = r.error && r.lastUpdate ? `offline · ${hhmm(r.lastUpdate)}`
     : r.loading && !r.lastUpdate ? 'verbinde …' : '';
 
+  const first = b.type === 'conn' ? r.conns[0]?.lines[0] : r.deps.find(d => !b.lines.length || b.lines.includes(d.line));
+  if (first) el.style.setProperty('--line-acc', lineColor(first.name || first.line, first.product));
+
   const rowsEl = el.querySelector('.rows');
   if (b.type === 'conn') { updateConnBoard(b, el, r, now, rowsEl); return; }
   const visible = b.station ? visibleDepartures(b, now) : [];
@@ -937,6 +983,7 @@ function tick() {
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   document.body.classList.toggle('compact', state.compact);
+  for (const v of ['frame', 'bar', 'stripe', 'line', 'lift']) document.body.classList.toggle('sep-' + v, state.sep === v);
   document.querySelector('meta[name="theme-color"]').content = state.theme.startsWith('led') ? '#0a0a0a' : '#0b1a33';
 }
 
@@ -1052,6 +1099,7 @@ function closeSettings() {
 function renderSettings() {
   document.querySelectorAll('#themeSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.theme)));
   $('compactChk').checked = state.compact;
+  document.querySelectorAll('#sepSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.sep)));
   document.querySelectorAll('#colsSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.cols)));
   $('wakeChk').checked = state.wake;
   $('wakeHint').textContent = 'wakeLock' in navigator
@@ -1387,6 +1435,10 @@ $('addBoard').addEventListener('click', () => {
 $('themeSeg').addEventListener('click', e => {
   const x = e.target.closest('[data-v]'); if (!x) return;
   state.theme = x.dataset.v; saveStore(); applyTheme(); renderSettings();
+});
+$('sepSeg').addEventListener('click', e => {
+  const x = e.target.closest('[data-v]'); if (!x) return;
+  state.sep = x.dataset.v; saveStore(); applyTheme(); renderSettings();
 });
 $('compactChk').addEventListener('change', e => { state.compact = e.target.checked; saveStore(); applyTheme(); });
 $('colsSeg').addEventListener('click', e => {
