@@ -73,16 +73,25 @@
   .b-dir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: .62em; }
   .b-status { flex: none; font-size: .55em; }
   .ticker:empty { display: none; }
-  .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 2em 4.6em; column-gap: .6em; align-items: center; }
+  .b-cols, .row { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 1.9em 2em 4.6em; column-gap: .6em; align-items: center; }
+  .b-cols .c, .row .c-occ { text-align: center; }
+  /* Auslastung: immer drei Figuren, je nach Stufe 1–3 farbig (grün/gelb/rot) */
+  .c-occ { display: flex; justify-content: center; gap: .1em; }
+  .occ-fig { width: .52em; height: 1em; fill: currentColor; color: var(--occ-off, rgba(255,255,255,.18)); }
+  .occ-low .on { color: #4fe07a; }
+  .occ-med .on { color: #ffd23f; }
+  .occ-high .on { color: #ff5a46; }
   .b-cols > span { font-size: .5em; }
   .b-cols .r, .row .c-time, .row .c-plat { text-align: right; }
   .c-dest { display: flex; align-items: center; gap: .3em; min-width: 0; white-space: nowrap; }
   .c-dest .dn { overflow: hidden; text-overflow: ellipsis; }
   .acc { flex: none; width: .85em; height: .85em; fill: currentColor; opacity: .9; }
   [data-theme="modern"] .acc { fill: #7fb4ff; }
+  .c-plat { white-space: nowrap; overflow: hidden; }
   .c-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .row.cancelled .c-plat { display: none; }
-  .row.cancelled .c-time { grid-column: 3 / 5; }
+  .row.cancelled .c-occ { display: none; }
+  .row.cancelled .c-time { grid-column: 3 / 6; }
   .row.msg { display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ticker { overflow: hidden; white-space: nowrap; }
   .ticker .run { display: inline-block; padding-left: 100%; animation: ticker var(--dur, 30s) linear infinite; }
@@ -126,6 +135,8 @@
   [data-theme^="led"] .delay.late { color: #ff5a46; text-shadow: 0 0 5px rgba(255,80,60,.55); }
   [data-theme^="led"] .delay.early { color: #4fe07a; text-shadow: 0 0 5px rgba(70,220,120,.5); }
   [data-theme^="led"] .c-plat { color: var(--led-dim); }
+  [data-theme^="led"] .board { --occ-off: #3d2a00; }
+  [data-theme^="led"] .occ-fig.on { filter: drop-shadow(0 0 2px currentColor); }
   [data-theme^="led"] .row.cancelled .c-dest { color: var(--led-dim); }
   [data-theme^="led"] .row.cancelled .c-dest .dn { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--led-dim); }
   [data-theme^="led"] .ticker { font-size: .6em; border-top: 2px dotted var(--led-off); margin-top: .4em; padding-top: .4em; }
@@ -487,6 +498,25 @@ function isAccessibleHint(r) {
 // Rollstuhlsymbol (ISA) als SVG, damit es auch in der LED-Schrift in Tafelfarbe erscheint
 const ACC_ICON = '<svg class="acc" viewBox="0 0 24 24" role="img" aria-label="barrierefrei"><circle cx="11" cy="3.2" r="2.2"/><path d="M9.6 6.6h2.6v5h5.4v2.4h-7a1 1 0 0 1-1-1z"/><path d="M8.2 9.6v2.7a4.6 4.6 0 1 0 6.5 5.5h2.6a7.1 7.1 0 1 1-9.1-8.2z"/><path d="M15.4 14.6h2.4l2.6 6-2.2.9z"/></svg>';
 
+// Erwartete Auslastung: der BVG-Dienst liefert sie als Feld „occupancy“ (low/medium/high),
+// der VBB-Dienst als Hinweis mit Code „text.occup.loc.max.11/12/13“.
+const OCC_LEVEL = { low: 'low', medium: 'med', high: 'high' };
+const OCC_CODES = { 'text.occup.loc.max.11': 'low', 'text.occup.loc.max.12': 'med', 'text.occup.loc.max.13': 'high' };
+function parseOccupancy(d) {
+  if (OCC_LEVEL[d.occupancy]) return OCC_LEVEL[d.occupancy];
+  for (const r of d.remarks || []) if (OCC_CODES[r.code]) return OCC_CODES[r.code];
+  return null;
+}
+const OCC_FIG = on => `<svg class="occ-fig${on ? ' on' : ''}" viewBox="0 0 10 20" aria-hidden="true"><circle cx="5" cy="4" r="3.3"/><rect x="1.2" y="8.6" width="7.6" height="10.6" rx="3"/></svg>`;
+const OCC_ICONS = Object.fromEntries([['low', 1], ['med', 2], ['high', 3]].map(([k, n]) =>
+  [k, `<span class="occ-${k}" role="img" aria-label="Auslastung ${{ low: 'gering', med: 'mittel', high: 'hoch' }[k]}" style="display:contents">${[0, 1, 2].map(i => OCC_FIG(i < n)).join('')}</span>`]));
+
+// An Bahnhöfen mit S- und U-Bahn liefert die BVG z. B. „2 (U5)“ – die Linie steht schon vorne,
+// also nur „2“ anzeigen.
+function cleanPlatform(p) {
+  return String(p || '').replace(/\s*\([^)]*\)/g, '').trim();
+}
+
 async function fetchDepartures(b, signal) {
   if (DEMO) return demoDepartures(b.station.id, b.direction?.id);
   const params = {
@@ -502,10 +532,11 @@ async function fetchDepartures(b, signal) {
     line: d.line?.name || '?',
     product: d.line?.product || '',
     dest: shortName(d.direction || d.destination?.name || ''),
-    platform: d.platform || d.plannedPlatform || '',
+    platform: cleanPlatform(d.platform || d.plannedPlatform),
     when: new Date(d.when || d.plannedWhen),
     delayMin: d.delay != null ? Math.round(d.delay / 60) : null,
     cancelled: !!d.cancelled,
+    occupancy: parseOccupancy(d),
     warnings: (d.remarks || []).filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean),
     accessible: (d.remarks || []).some(isAccessibleHint),
     hints: (d.remarks || []).filter(r => r.type === 'hint').map(r => `${r.code || '–'}: ${stripHtml(r.text || r.summary || '')}`),
@@ -585,7 +616,7 @@ function renderGrid() {
     <div class="board-wrap${b.wide ? ' wide' : ''}" data-board="${b.id}">
       <section class="board" aria-label="Abfahrtstafel">
         <div class="b-head"><span class="b-title"></span><span class="b-dir"></span><span class="b-status"></span></div>
-        <div class="b-cols" aria-hidden="true"><span>Linie</span><span>Ziel</span><span class="r">Gl.</span><span class="r">Abfahrt</span></div>
+        <div class="b-cols" aria-hidden="true"><span>Linie</span><span>Ziel</span><span class="c">Ausl.</span><span class="r">Gl.</span><span class="r">Abfahrt</span></div>
         <div class="rows" role="list"></div>
         <div class="ticker"></div>
       </section>
@@ -597,7 +628,7 @@ function renderGrid() {
 // Schriftgröße (--fs) so groß wie möglich wählen, sodass alles ohne Scrollen auf den Bildschirm passt
 // (Wandtablet). Bei „Auto“ werden 1–3 Spalten durchprobiert und die Anordnung mit der größten Schrift genommen.
 const FS_MIN = 11, FS_MAX = 72;
-const EM_PER_BOARD = 23; // Breite einer Tafel in em: Linie + Gleis + Abfahrt + Abstände + Platz fürs Ziel
+const EM_PER_BOARD = 25.5; // Breite einer Tafel in em: Linie + Gleis + Abfahrt + Abstände + Platz fürs Ziel
 
 function fitToScreen() {
   const root = document.documentElement, grid = $('grid');
@@ -669,6 +700,7 @@ function updateBoard(b) {
       return `<div class="row${d.cancelled ? ' cancelled' : ''}" role="listitem">
         <span class="c-line"><span class="badge p-${esc(d.product)}${darkText}" style="--lc:${col}">${esc(d.line)}</span></span>
         <span class="c-dest"><span class="dn">${esc(d.dest)}</span>${d.accessible ? ACC_ICON : ''}</span>
+        <span class="c-occ ${d.occupancy ? 'occ-' + d.occupancy : ''}">${d.occupancy ? OCC_ICONS[d.occupancy] : ''}</span>
         <span class="c-plat">${esc(d.platform)}</span>
         <span class="c-time"><span class="${blink}">${esc(timeLabel(d, now))}</span>${delayHtml}</span>
       </div>`;
@@ -1021,6 +1053,7 @@ function renderDataCheck(b) {
   el.innerHTML = `Letzte Abfrage ${hhmm(r.lastUpdate)} über ${DEMO ? 'DEMO' : APIS[apiIdx].name}: <b>${n}</b> Abfahrten, davon `
     + `<b>${deps.filter(d => d.accessible).length}</b> als barrierefrei markiert, `
     + `<b>${deps.filter(d => d.delayMin != null).length}</b> mit Echtzeit, `
+    + `<b>${deps.filter(d => d.occupancy).length}</b> mit Auslastung, `
     + `<b>${deps.filter(d => d.warnings.length).length}</b> mit Störungsmeldung.<br>`
     + `Hinweise in den Daten: ${hints || '<b>keine</b>'}`;
 }
@@ -1234,6 +1267,7 @@ function demoDepartures(stationId, directionId) {
         when: new Date((m + delayMin) * 60000 + 20000),
         delayMin,
         cancelled: line === 'M4' && seed % 2 === 1,
+        occupancy: ['low', 'med', 'high', 'low', null, 'med'][(m + dest.length) % 6],
         warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
         accessible: product === 'bus' || product === 'tram' || line === 'U8' || (product === 'suburban' && m % 2 === 0),
         hints: ['FB: Fahrradmitnahme möglich'],
