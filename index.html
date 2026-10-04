@@ -508,6 +508,7 @@ async function fetchDepartures(b, signal) {
     cancelled: !!d.cancelled,
     warnings: (d.remarks || []).filter(r => r.type === 'warning').map(r => stripHtml(r.summary || r.text)).filter(Boolean),
     accessible: (d.remarks || []).some(isAccessibleHint),
+    hints: (d.remarks || []).filter(r => r.type === 'hint').map(r => `${r.code || '–'}: ${stripHtml(r.text || r.summary || '')}`),
   }));
 }
 
@@ -535,7 +536,7 @@ async function loadBoard(b) {
       r.ctrl = null;
       r.loading = false;
       updateBoard(b);
-      if (!$('settings').hidden) renderLineChips(b);
+      if (!$('settings').hidden) { renderLineChips(b); renderDataCheck(b); }
     }
   }
 }
@@ -878,6 +879,10 @@ function renderSettings() {
         <div class="chips" data-f="lines"></div>
         <div class="hint">Keine Auswahl = alle Linien. Angeboten werden die Linien, die hier in den nächsten ${DURATION_MIN} Minuten fahren.</div>
       </div>
+      <div class="field full">
+        <span class="lbl">Daten-Check</span>
+        <div class="hint" style="margin:0" data-f="check"></div>
+      </div>
       <div class="field">
         <span class="lbl">Anzahl Abfahrten</span>
         <div class="stepper">
@@ -916,6 +921,7 @@ function setupCard(b) {
   q('[data-f="title"]').value = b.title;
   renderProductChips(b);
   renderLineChips(b);
+  renderDataCheck(b);
 
   const stationAc = autocomplete(stationIn, syncInputs, s => {
     if (b.station?.id !== s.id) { b.direction = null; b.lines = []; }
@@ -996,6 +1002,27 @@ function toggleProduct(b, k) {
 
 function hasFilter(b) {
   return !!b.direction || b.lines.length > 0 || b.products.length < ALL_PRODUCTS.length;
+}
+
+// Zeigt, was die Schnittstelle bei der letzten Abfrage geliefert hat – hilft bei Fragen wie
+// „Warum sehe ich kein Rollstuhlsymbol?“, ohne Rohdaten lesen zu müssen.
+function renderDataCheck(b) {
+  const el = cardEl(b)?.querySelector('[data-f="check"]');
+  if (!el) return;
+  const r = boardRt(b);
+  if (!b.station) { el.textContent = 'Erst eine Haltestelle wählen.'; return; }
+  if (!r.lastUpdate) { el.textContent = r.error ? 'Keine Verbindung – noch keine Daten.' : 'Noch keine Daten …'; return; }
+  const deps = r.deps;
+  const count = {};
+  for (const d of deps) for (const h of new Set(d.hints || [])) count[h] = (count[h] || 0) + 1;
+  const hints = Object.entries(count).sort((x, y) => y[1] - x[1])
+    .map(([h, n]) => `${esc(h)} (${n}×)`).join(' · ');
+  const n = deps.length;
+  el.innerHTML = `Letzte Abfrage ${hhmm(r.lastUpdate)} über ${DEMO ? 'DEMO' : APIS[apiIdx].name}: <b>${n}</b> Abfahrten, davon `
+    + `<b>${deps.filter(d => d.accessible).length}</b> als barrierefrei markiert, `
+    + `<b>${deps.filter(d => d.delayMin != null).length}</b> mit Echtzeit, `
+    + `<b>${deps.filter(d => d.warnings.length).length}</b> mit Störungsmeldung.<br>`
+    + `Hinweise in den Daten: ${hints || '<b>keine</b>'}`;
 }
 
 function renderLineChips(b) {
@@ -1209,6 +1236,7 @@ function demoDepartures(stationId, directionId) {
         cancelled: line === 'M4' && seed % 2 === 1,
         warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
         accessible: product === 'bus' || product === 'tram' || line === 'U8' || (product === 'suburban' && m % 2 === 0),
+        hints: ['FB: Fahrradmitnahme möglich'],
       });
     }
   }
