@@ -61,6 +61,17 @@
   .grid[data-cols="1"] { grid-template-columns: minmax(0, 1fr); }
   .grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Kompakt: ohne Spaltenköpfe, schmalere Ränder und Abstände – mehr Platz für die Schrift */
+  body.compact .b-cols { display: none; }
+  /* ohne Spaltenköpfe steht „Gl.“ direkt vor der Gleisnummer */
+  body.compact .board-wrap:not(.no-plat) { --plat-w: 3.5em; }
+  body.compact .row .c-plat:not(:empty)::before { content: "Gl."; font-size: .6em; opacity: .75; margin-right: .2em; }
+  body.compact .grid { gap: 8px; }
+  body.compact .dash { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: 6px; }
+  body.compact .dash-head { margin-bottom: 4px; min-height: 36px; }
+  body.compact .hbtn { width: 36px; height: 36px; font-size: 17px; }
+  body.compact .board { padding: .35em .5em .25em !important; border-width: 4px !important; border-radius: 10px; }
+  body.compact .b-head { padding-bottom: .15em !important; }
   @media (max-width: 700px) { .grid[data-cols] { grid-template-columns: minmax(0, 1fr); } }
   .board-wrap.wide { grid-column: 1 / -1; }
 
@@ -120,6 +131,7 @@
   .j-sep { opacity: .6; }
   .j-leg { display: inline-flex; align-items: baseline; white-space: nowrap; }
   .j-leg .delay { margin-left: .15em; }
+  .j-plat { margin-left: .35em; font-size: .7em; opacity: .8; }
   .row.cancelled .j-lines { text-decoration: line-through; opacity: .6; }
   .row.msg { display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ticker { overflow: hidden; white-space: nowrap; }
@@ -306,6 +318,10 @@
         </div>
       </div>
       <div class="field">
+        <label class="switch"><span class="t">Kompakt</span><input type="checkbox" id="compactChk" /></label>
+        <div class="hint">Ohne Spaltenköpfe und mit schmaleren Rändern – mehr Platz für die Schrift auf kleinen Bildschirmen.</div>
+      </div>
+      <div class="field">
         <span class="lbl">Spalten</span>
         <div class="seg" id="colsSeg">
           <button type="button" data-v="auto">Auto</button>
@@ -403,6 +419,7 @@ const state = {
   boards: [],
   theme: 'ledbold',
   cols: 'auto',
+  compact: false,
   wake: true,
   night: { on: false, from: 23, to: 6 },
 };
@@ -426,6 +443,7 @@ function loadStore() {
   }
   if (['led', 'ledbold', 'modern'].includes(s.theme)) state.theme = s.theme;
   if (['auto', '1', '2', '3'].includes(s.cols)) state.cols = s.cols;
+  if (typeof s.compact === 'boolean') state.compact = s.compact;
   if (typeof s.wake === 'boolean') state.wake = s.wake;
   if (s.night && typeof s.night === 'object') state.night = { ...state.night, ...s.night };
 }
@@ -433,7 +451,7 @@ function loadStore() {
 function saveStore() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      boards: state.boards, theme: state.theme, cols: state.cols, wake: state.wake, night: state.night,
+      boards: state.boards, theme: state.theme, cols: state.cols, compact: state.compact, wake: state.wake, night: state.night,
     }));
   } catch (e) { /* ignorieren */ }
 }
@@ -603,7 +621,10 @@ function parseJourney(j) {
     arr: new Date(last.arrival || last.plannedArrival),
     arrDelayMin: min(last.arrivalDelay),
     // je Teilstrecke die Abweichung bei der Abfahrt – steht in der Kette direkt hinter der Linie
-    lines: legs.map(l => ({ name: l.line.name, product: l.line.product, delayMin: min(l.departureDelay) })),
+    lines: legs.map(l => ({
+      name: l.line.name, product: l.line.product, delayMin: min(l.departureDelay),
+      platform: cleanPlatform(l.departurePlatform || l.plannedDeparturePlatform),
+    })),
     cancelled: legs.some(l => l.cancelled),
     // höchste Auslastung aller Teilstrecken – darauf muss man sich einstellen
     occupancy: legs.map(parseOccupancy).filter(Boolean).sort((a, b) => OCC_RANK[b] - OCC_RANK[a])[0] || null,
@@ -695,7 +716,7 @@ function connRowsHtml(b, now) {
     const blink = !j.cancelled && j.when - now < 60000 ? 'blink' : '';
     return `<div class="row${j.cancelled ? ' cancelled' : ''}" role="listitem">
       <span class="j-dep"><span class="${blink}">${esc(timeLabel(j, now))}</span></span>
-      <span class="j-lines">${j.lines.map(l => `<span class="j-leg">${badgeHtml(l.name, l.product)}${j.cancelled ? '' : delayHtml(l.delayMin)}</span>`).join('<span class="j-sep">›</span>')}</span>
+      <span class="j-lines">${j.lines.map(l => `<span class="j-leg">${badgeHtml(l.name, l.product)}${j.cancelled ? '' : delayHtml(l.delayMin)}${l.platform ? `<span class="j-plat">Gl.&nbsp;${esc(l.platform)}</span>` : ''}</span>`).join('<span class="j-sep">›</span>')}</span>
       <span class="j-occ">${!j.cancelled && j.occupancy ? OCC_ICONS[j.occupancy] : ''}</span>
       <span class="j-arr">${j.cancelled ? '' : esc(hhmm(j.arr)) + delayHtml(j.arrDelayMin)}</span>
       <span class="j-dur">${j.cancelled ? '' : esc(durationLabel(j.arr - j.when))}</span>
@@ -750,7 +771,7 @@ function fitToScreen() {
   function bestFor(cols) {
     if (cols) grid.dataset.cols = cols; else delete grid.dataset.cols;
     const n = cols || 1;
-    const gap = 16, colW = (grid.clientWidth - gap * (n - 1)) / n;
+    const gap = state.compact ? 8 : 16, colW = (grid.clientWidth - gap * (n - 1)) / n;
     let lo = FS_MIN, hi = Math.max(FS_MIN, Math.min(FS_MAX, (colW - 20) / EM_PER_BOARD));
     if (!fits(lo)) return lo;
     for (let i = 0; i < 9; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
@@ -891,6 +912,7 @@ function tick() {
 
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
+  document.body.classList.toggle('compact', state.compact);
   document.querySelector('meta[name="theme-color"]').content = state.theme.startsWith('led') ? '#0a0a0a' : '#0b1a33';
 }
 
@@ -1005,6 +1027,7 @@ function closeSettings() {
 
 function renderSettings() {
   document.querySelectorAll('#themeSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.theme)));
+  $('compactChk').checked = state.compact;
   document.querySelectorAll('#colsSeg button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === state.cols)));
   $('wakeChk').checked = state.wake;
   $('wakeHint').textContent = 'wakeLock' in navigator
@@ -1341,6 +1364,7 @@ $('themeSeg').addEventListener('click', e => {
   const x = e.target.closest('[data-v]'); if (!x) return;
   state.theme = x.dataset.v; saveStore(); applyTheme(); renderSettings();
 });
+$('compactChk').addEventListener('change', e => { state.compact = e.target.checked; saveStore(); applyTheme(); });
 $('colsSeg').addEventListener('click', e => {
   const x = e.target.closest('[data-v]'); if (!x) return;
   state.cols = x.dataset.v; saveStore(); renderSettings();
@@ -1439,7 +1463,7 @@ function demoDepartures(stationId, directionId) {
         // wie in den echten Daten: für die S-Bahn liefert die BVG keine Auslastung
         occupancy: product === 'suburban' ? null : ['low', 'med', 'high', 'low', null, 'med'][(m + dest.length) % 6],
         warnings: DEMO_WARNINGS[line] ? [DEMO_WARNINGS[line]] : [],
-        accessible: product === 'bus' || product === 'tram' || line === 'U8' || (product === 'suburban' && m % 2 === 0),
+        accessible: false, // wie in den echten Daten: die BVG liefert die Barrierefreiheit derzeit nicht
         hints: ['FB: Fahrradmitnahme möglich'],
       });
     }
@@ -1462,7 +1486,7 @@ function demoJourneys(fromId, toId) {
     out.push({
       id: 'dj' + m, when: new Date((m + u8Delay) * 60000), delayMin: u8Delay,
       arr: new Date((s + 9 + sDelay) * 60000), arrDelayMin: sDelay,
-      lines: [{ name: 'U8', product: 'subway', delayMin: u8Delay }, { name: sLine, product: 'suburban', delayMin: sDelay }],
+      lines: [{ name: 'U8', product: 'subway', delayMin: u8Delay, platform: '2' }, { name: sLine, product: 'suburban', delayMin: sDelay, platform: '1' }],
       cancelled: seed === 9, occupancy: ['low', 'med', 'high', 'med', null][Math.floor(m / 5) % 5],
       warnings: seed === 4 ? ['S25: Verspätungen wegen einer Signalstörung'] : [],
     });
